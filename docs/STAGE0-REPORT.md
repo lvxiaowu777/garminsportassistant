@@ -51,7 +51,7 @@ SSH 密码**。
 |---|---|
 | 9 个部署脚本的 IP/账号/SSH 密码 | 抽到 `.deploy.env`，新增 `deploy_config.py` 统一加载 |
 | `database.py` 里的 MySQL 账号密码 | 删除默认值，改为强制从 `DATABASE_URL` 环境变量读 |
-| 真名"吕游"（36 处，主要在 SYSTEM_PROMPT） | 改为"用户" |
+| 真名（36 处，主要在 SYSTEM_PROMPT） | 改为"用户" |
 | 真实手机号（迁移脚本默认值等） | 改为 `13800138000` |
 | 真实域名 `*.space` | 改为 `example.com` |
 | 含服务器信息的 5 份运维文档 | 移入 `docs-private/`（gitignored） |
@@ -122,7 +122,7 @@ GET /api/health/safety    → 200
 
 ```powershell
 # 1. 看提交历史
-cd C:\Users\boobyboy\study\project\garmin-coach
+cd <项目根目录>   # 即 garmin-coach/
 git log --oneline --decorate
 git diff v0.1.0-baseline..HEAD --stat    # 看我到底改了什么
 
@@ -145,7 +145,7 @@ git ls-files | Select-String "\.env$|\.deploy\.env|\.tokens|\.db"
 我没法替你建远程仓库。你决定名字后用：
 
 ```powershell
-cd C:\Users\boobyboy\study\project\garmin-coach
+cd <项目根目录>   # 即 garmin-coach/
 git remote add origin https://github.com/<你的用户名>/<仓库名>.git
 git push -u origin master --tags
 ```
@@ -181,6 +181,6 @@ git push -u origin master --tags
 ## 遗留的技术债（已记在 REFACTOR.md）
 
 - `database.py` / `llm_client.py` 顶部各有一段手写 `.env` 解析，
-  且硬编码了 `C:\Users\boobyboy\study\.env` 这个绝对路径，换机器就失效。阶段 1 清掉。
+  且硬编码了本机用户主目录下的 `.env` 绝对路径，换机器就失效。阶段 1 清掉。
 - `requirements.txt` 没锁版本上限，建议阶段 5 生成 lock 文件。
 - `server.py` 里 `WebSocket` 和 `scheduler` 都在模块级启动，测试时不好隔离，阶段 4 处理。

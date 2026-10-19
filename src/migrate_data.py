@@ -2,6 +2,7 @@
 数据迁移：从现有 markdown 文件导入到 SQLite。
 只读不写，不影响现有数据。
 """
+import os
 import sys
 import datetime as dt
 from pathlib import Path
@@ -19,7 +20,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 from frontmatter import parse as parse_health_md
 from database import init_db, upsert_health_daily
 
-HEALTH_DIR = Path(r"C:\Users\boobyboy\study\知识库\健康")
+HEALTH_DIR = (
+    Path(os.environ.get("GARMIN_STUDY_DIR") or (Path.home() / "study"))
+    / "知识库"
+    / "健康"
+)
 
 
 def migrate_all():

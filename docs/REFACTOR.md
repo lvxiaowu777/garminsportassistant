@@ -203,7 +203,7 @@ api/asr.py      /api/asr
 ## 恢复工作的方法
 
 ```bash
-cd C:\Users\boobyboy\study\project\garmin-coach
+cd garmin-coach   # 项目根目录
 git log --oneline              # 看做到哪
 git checkout v0.1.0-baseline   # 回到重构前
 ```

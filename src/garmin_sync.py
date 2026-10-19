@@ -38,7 +38,7 @@ from frontmatter import parse as parse_frontmatter
 # 路径常量
 PROJECT_DIR = Path(__file__).resolve().parent.parent
 TOKEN_DIR = PROJECT_DIR / "config" / ".tokens"
-STUDY_DIR = Path(r"C:\Users\boobyboy\study")
+STUDY_DIR = Path(os.environ.get("GARMIN_STUDY_DIR") or (Path.home() / "study"))
 HEALTH_DIR = STUDY_DIR / "知识库" / "健康"
 
 _CLIENT_CACHE = None

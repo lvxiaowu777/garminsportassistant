@@ -54,8 +54,12 @@ STATIC_DIR.mkdir(exist_ok=True)
 AUDIO_DIR = STATIC_DIR / "audio"
 AUDIO_DIR.mkdir(exist_ok=True)
 
-# 健康数据目录
-HEALTH_DIR = Path(r"C:\Users\boobyboy\study\知识库\健康")
+# 健康数据目录（旧的 markdown 数据源；不硬编码用户名）
+HEALTH_DIR = (
+    Path(os.environ.get("GARMIN_STUDY_DIR") or (Path.home() / "study"))
+    / "知识库"
+    / "健康"
+)
 
 
 # ═══════════════════════════════════════════════

@@ -29,6 +29,7 @@
       location: "襄阳"
 """
 
+import os
 import sys
 import json
 import datetime as dt
@@ -43,10 +44,12 @@ if sys.platform == "win32":
     except Exception:
         pass
 
-sys.path.insert(0, r"C:\Users\boobyboy\study")
+# study 目录（默认用户主目录下的 study，可用 GARMIN_STUDY_DIR 覆盖；不硬编码用户名）
+STUDY_DIR = Path(os.environ.get("GARMIN_STUDY_DIR") or (Path.home() / "study"))
+if str(STUDY_DIR) not in sys.path:
+    sys.path.insert(0, str(STUDY_DIR))
 from llm_env import get_key  # noqa: E402
 
-STUDY_DIR = Path(r"C:\Users\boobyboy\study")
 HEALTH_DIR = STUDY_DIR / "知识库" / "健康"
 
 CITY_NAME = "襄阳"

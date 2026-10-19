@@ -20,7 +20,11 @@ from typing import Optional
 # 加载 .env：优先项目目录（服务器 ~/garmin-coach/.env），fallback 本地 study/.env
 ENV_PATH = Path(__file__).resolve().parent.parent / ".env"
 if not ENV_PATH.exists():
-    ENV_PATH = Path(r"C:\Users\boobyboy\study\.env")
+    # 兼容旧的本地布局：<用户主目录>/study/.env
+    # 不硬编码用户名，换成 Path.home() 推导；可用 GARMIN_STUDY_DIR 覆盖。
+    ENV_PATH = (
+        Path(os.environ.get("GARMIN_STUDY_DIR") or (Path.home() / "study")) / ".env"
+    )
 if ENV_PATH.exists():
     with open(ENV_PATH, encoding="utf-8") as f:
         for line in f:
