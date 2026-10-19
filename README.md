@@ -159,11 +159,15 @@ garmin-coach/
 | 阶段 | 内容 | 状态 |
 |---|---|---|
 | 0 | 代码入库、凭据外置、可回滚基线 | ✅ 完成 |
-| 1 | `LLMClient` 抽象（多协议 + 流式事件） | 待做 |
-| 2 | `Tool` 基类 + `ToolRegistry`，数据查询工具化 | 待做 |
-| 3 | `Agent.run()` 主循环 + `ConversationManager` | 待做 |
+| 1 | `LLMClient` 抽象（多协议 + 流式事件） | ✅ 完成 |
+| 2 | `Tool` 基类 + `ToolRegistry`，数据查询工具化 | ✅ 完成 |
+| 3 | `Agent.run()` 主循环 + `ConversationManager` | ✅ 完成 |
 | 4 | `server.py` 瘦身为薄路由 | 待做 |
 | 5 | 测试、文档、发布 | 待做 |
+
+阶段 1-3 已落地：对话从「把全部数据拼进 prompt 的单轮调用」改造成
+「模型自己调工具查数据」的 Agent 循环，9 个工具，接口契约完全兼容。
+详见 [`docs/INTERVIEW-GUIDE.md`](docs/INTERVIEW-GUIDE.md)（技术细节与设计取舍）。
 
 **为什么只重构对话这条线**：其余约 38 个 CRUD 路由不需要 LLM，
 硬套 Agent 架构属于过度设计。分层只对「对话」有价值。

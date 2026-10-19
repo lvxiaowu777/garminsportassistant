@@ -121,7 +121,10 @@ class Agent:
                 elif isinstance(event, MessageStop):
                     stop_reason = event.stop_reason
                     if event.usage:
-                        usage = event.usage
+                        # 累加而不是覆盖 —— 一轮对话可能有多次 LLM 调用，
+                        # 只看最后一次会严重低估成本
+                        for key, value in event.usage.items():
+                            usage[key] = usage.get(key, 0) + value
                 elif isinstance(event, ThinkingDelta):
                     # 思考内容不进对话，只记日志（对调试模型决策有用）
                     log.debug("thinking: %s", event.text[:200])

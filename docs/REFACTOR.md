@@ -62,17 +62,38 @@ provider 配置、system prompt、上下文拼接、HTTP 适配、ASR，
 
 ---
 
-### 阶段 1 —— LLM 传输层
+### 阶段 1 —— LLM 传输层 ✅
 
-新建 `garmin_coach/llm/`：
+已完成，文件在 `garmin_coach/llm/`：
 
 | 文件 | 内容 |
 |---|---|
-| `base.py` | `LLMClient` 抽象基类；`StreamEvent` 联合类型 |
-| `openai.py` | OpenAI 兼容协议（DeepSeek / StepFun / Ark 都走这条） |
-| `anthropic.py` | Anthropic 协议（可选，为以后接别的模型留口） |
-| `factory.py` | 按 provider 名造客户端 |
+| `base.py` | `LLMClient` 抽象 + 7 种 `StreamEvent` |
+| `openai.py` | OpenAI 兼容流式客户端（DeepSeek / StepFun / Ark 共用） |
 | `config.py` | provider 配置，从环境变量读 |
+| `factory.py` | 按配置造客户端 |
+
+工具调用在流式里是**分片**吐的（`function.arguments` 被切碎），
+拼装逻辑封在 `openai.py` 的 `pending` 字典里，上层拿到的是完整对象。
+
+### 阶段 2 —— 工具层 ✅
+
+已完成，文件在 `garmin_coach/tools/`。9 个工具：`get_safety` / `get_today` /
+`get_recent` / `get_day` / `get_activity` / `get_weather` / `get_profile` /
+`record_training` / `save_plan`。
+
+三个设计要点：
+- 工具执行失败**不抛异常**，转成 `is_error` 的 `ToolResult` 交给模型自我修正
+- 同步 SQLAlchemy 查询用 `asyncio.to_thread` 包一层，避免阻塞事件循环
+- 每个工具绑定 `user_id`（工具是 Agent 内部调用，没有 `Depends` 兜底）
+
+### 阶段 3 —— Agent 主循环 ✅
+
+已完成，文件在 `garmin_coach/agent/`。`build_context()` 那 110 行已不再被
+`/api/chat` 使用（保留在旧路径作回退）。
+
+实测：提问「我 8 月 9 号那次跑步怎么样」，模型自己完成
+`get_day` → 看到 activity_id → `get_activity` → 输出分析，3 轮 2 次工具调用。
 
 **关键设计**：`StreamEvent` 必须把不同厂商的 stream 归一化。参考 MewCode 的做法，
 至少这几种：
@@ -89,67 +110,6 @@ Error(message)                   # 错误
 
 **验收标准**：用一个最小脚本，不改动 `src/` 任何代码，就能把
 `StreamEvent` 流打印到终端。
-
----
-
-### 阶段 2 —— 工具层
-
-新建 `garmin_coach/tools/`：
-
-```python
-class Tool(ABC):
-    name: str                       # 模型看到的名字
-    description: str                # 给模型读的说明书
-    params_model: type[BaseModel]   # 入参 schema
-
-    @abstractmethod
-    async def execute(self, params) -> ToolResult: ...
-```
-
-计划实现的工具（全部复用 `services/` 里的函数，不重复写查询）：
-
-| 工具 | 数据来源 | 替代的 HTTP 接口 |
-|---|---|---|
-| `get_safety` | safety 引擎 | `/api/health/safety` |
-| `get_today` | 今日恢复 + 睡眠 + 天气 | `/api/health/dashboard` |
-| `get_recent(days)` | 最近 N 天聚合 | `/api/health/recent/{days}` |
-| `get_day(date)` | 指定日期 | `/api/health/day/{date}` |
-| `get_activity(id)` | 单次活动分段/心率区间 | `/api/health/activity/{id}` |
-| `get_weather` | 天气与跑步窗口 | `/api/health/weather` |
-| `get_profile` | 目标与未来比赛 | `/api/user/profile` |
-| `record_training` | 写入训练记录 | `/api/health/record-training` |
-
-**验收标准**：每个工具都有单元测试，输入固定的假数据能返回预期结构。
-
----
-
-### 阶段 3 —— Agent 主循环
-
-新建 `garmin_coach/agent/`：
-
-```python
-class Agent:
-    async def run(self, user_message: str) -> AsyncIterator[AgentEvent]:
-        self.conversation.add_user_message(user_message)
-        for turn in range(self.max_turns):
-            response = await self.llm.stream(self.conversation.messages, tools=...)
-            if not response.tool_calls:
-                break                      # 模型不再要工具 → 收工
-            for call in response.tool_calls:
-                result = await self.execute_tool(call)
-                self.conversation.add_tool_result(call.id, result)
-        ...
-```
-
-配套 `ConversationManager`：消息历史、token 估算、超阈值时压缩。
-（当前项目的对话历史已经在 `chat_history` 表里，`ConversationManager` 负责
-把它和内存中的本轮消息合并，并决定要不要裁剪。）
-
-**删掉的东西**：`build_context()` 那 110 行，以及 `SYSTEM_PROMPT` 里
-「以下是用户的健康数据」那段拼接。
-
-**验收标准**：问「我昨天跑了多少」，从日志里能看到模型主动调了
-`get_recent` 或 `get_day`，而不是一上来就拿到全量数据。
 
 ---
 
