@@ -72,8 +72,8 @@
 ### 1. 装依赖
 
 ```bash
-git clone <this-repo>
-cd garmin-coach
+git clone https://github.com/lvxiaowu777/garminsportassistant.git
+cd garminsportassistant
 python -m venv venv
 source venv/bin/activate        # Windows: venv\Scripts\activate
 pip install -r requirements.txt
