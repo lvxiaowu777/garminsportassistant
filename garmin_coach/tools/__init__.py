@@ -27,3 +27,9 @@
 注意：工具**复用 services/ 里的函数**，不自己写查询逻辑。
 这样 HTTP 路由和 LLM 工具共享同一份业务实现，不会出现两套口径。
 """
+from .base import Tool, ToolResult
+from .health import build_default_registry
+from .registry import ToolRegistry
+
+__all__ = ["Tool", "ToolResult", "ToolRegistry", "build_default_registry"]
+

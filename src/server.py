@@ -6,6 +6,7 @@ import sys
 import os
 import json
 import re
+import logging
 import threading
 import datetime as dt
 from pathlib import Path
@@ -20,6 +21,13 @@ if sys.platform == "win32":
 # 把 src 加入 path
 SRC_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(SRC_DIR))
+
+# 项目根也要加：新架构包 garmin_coach/ 在根目录下。
+# 用 `python src/server.py` 启动时 sys.path[0] 是 src/，不包含项目根，
+# 不加这一行 `import garmin_coach` 会 ModuleNotFoundError。
+PROJECT_ROOT = SRC_DIR.parent
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Depends, UploadFile, File, Form
 from fastapi.staticfiles import StaticFiles
@@ -47,6 +55,16 @@ from coros_server_sync import login_and_store as coros_login, sync_user_coros, s
 
 # ── FastAPI 应用 ──
 app = FastAPI(title="Garmin Coach", version="1.0.0")
+
+# 让 Agent 的工具调用过程能在服务器日志里看到（agent / garmin.server 两个 logger）。
+# 只在没人配过 handler 时设一次，避免覆盖 uvicorn 自己的配置。
+if not logging.getLogger().handlers:
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+    )
+
+log = logging.getLogger("garmin.server")
 
 # 静态文件
 STATIC_DIR = SRC_DIR.parent / "static"
@@ -665,16 +683,48 @@ def extract_plan(reply: str):
 
 @app.post("/api/chat")
 async def api_chat(req: ChatRequest, user_id: int = Depends(get_current_user)):
-    """非流式对话。"""
+    """非流式对话。
+
+    优先走新的带工具 Agent（``garmin_coach.agent``）：模型自己决定查什么数据，
+    而不是由服务端把全部数据拼进 prompt。任何环节出问题（没 key、网络、
+    协议不兼容）都回退到旧的单轮实现，保证这个接口不会因为重构而不可用。
+    """
     from llm_client import chat
-    ctx = build_chat_context(user_id)
+
     history = get_chat_history(20, user_id)
-
     add_chat("user", req.message, user_id)
-    reply = await chat(req.message, ctx, history, req.provider or None)
 
+    agent_result = None
+    ctx: dict = {}
+    try:
+        from garmin_coach.agent.bridge import run_agent_chat
+
+        agent_result = await run_agent_chat(
+            req.message,
+            user_id,
+            history=history,
+            provider_name=req.provider,
+        )
+        reply = agent_result.text
+        log.info(
+            "[agent] user=%s turns=%s tools=%s chars=%s",
+            user_id,
+            agent_result.turns,
+            agent_result.tools_used,
+            len(reply),
+        )
+    except Exception as exc:  # noqa: BLE001 - 重构期的安全网，任何异常都回退
+        log.warning("[agent] 失败，回退旧实现: %s: %s", exc.__class__.__name__, exc)
+        ctx = build_chat_context(user_id)
+        reply = await chat(req.message, ctx, history, req.provider or None)
+
+    # 训练记录：新路径靠 record_training 工具直接落库；
+    # 这里仍保留旧的 [RECORD] 标记解析，作为回退路径和模型不听话时的兜底。
+    recorded = bool(
+        agent_result
+        and any(c.name == "record_training" for c in agent_result.tool_calls)
+    )
     clean_reply, record = extract_training_record(reply)
-    recorded = record is not None
     if record:
         record_training(
             user_id,
@@ -683,9 +733,10 @@ async def api_chat(req: ChatRequest, user_id: int = Depends(get_current_user)):
             record.get("notes", ""),
             exercises=record.get("exercises"),
         )
+        recorded = True
         reply = clean_reply or reply
 
-    # 提取未来计划 [PLAN]，落库（user_id 隔离）
+    # 未来计划：同上，新路径用 save_plan 工具，旧路径用 [PLAN] 标记
     clean_reply, plan = extract_plan(reply)
     if plan:
         save_plan(user_id, json.dumps(plan, ensure_ascii=False))
