@@ -1,0 +1,1124 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#0f172a">
+<title>Garmin Coach</title>
+<link rel="manifest" href="/static/manifest.json">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<style>
+  :root {
+    --bg: #0f172a;
+    --bg-card: #1e293b;
+    --bg-input: #334155;
+    --text: #e2e8f0;
+    --text-muted: #94a3b8;
+    --accent: #3b82f6;
+    --accent-dim: #2563eb;
+    --danger: #ef4444;
+    --warn: #f59e0b;
+    --success: #22c55e;
+    --border: #334155;
+    --radius: 12px;
+    --radius-sm: 8px;
+    --shadow: 0 4px 24px rgba(0,0,0,0.3);
+  }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    min-height: 100dvh;
+    overflow-x: hidden;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  /* ── Header ── */
+  header {
+    position: sticky; top:0; z-index:100;
+    background: var(--bg);
+    border-bottom: 1px solid var(--border);
+    padding: 12px 16px;
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  header h1 { font-size: 18px; font-weight: 700; display: flex; align-items: center; gap: 8px; }
+  header h1 .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--success); }
+  header .time { font-size: 12px; color: var(--text-muted); }
+
+  /* ── Tabs ── */
+  nav.tabs {
+    display: flex; gap: 4px; padding: 8px 16px;
+    background: var(--bg); border-bottom: 1px solid var(--border);
+    position: sticky; top: 52px; z-index: 99;
+  }
+  nav.tabs button {
+    flex:1; padding: 8px 0; border: none; background: transparent;
+    color: var(--text-muted); font-size: 14px; font-weight: 500;
+    cursor: pointer; border-radius: var(--radius-sm); transition: all .2s;
+  }
+  nav.tabs button.active { background: var(--accent); color: #fff; }
+  nav.tabs button:hover:not(.active) { background: var(--bg-card); }
+
+  /* ── Main ── */
+  main { padding: 16px; max-width: 800px; margin: 0 auto; }
+  .tab-content { display: none; }
+  .tab-content.active { display: block; }
+
+  /* ── Cards ── */
+  .card {
+    background: var(--bg-card); border-radius: var(--radius);
+    padding: 16px; margin-bottom: 12px;
+    border: 1px solid var(--border); box-shadow: var(--shadow);
+  }
+  .card h3 { font-size: 13px; color: var(--text-muted); text-transform: uppercase; letter-spacing: .5px; margin-bottom: 8px; }
+  .card-row { display: flex; gap: 12px; flex-wrap: wrap; }
+  .card-row > .card { flex: 1; min-width: 140px; }
+
+  /* ── Stat ── */
+  .stat { display: flex; flex-direction: column; }
+  .stat .value { font-size: 28px; font-weight: 700; }
+  .stat .label { font-size: 12px; color: var(--text-muted); }
+  .stat .sub { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
+  .stat .value.good { color: var(--success); }
+  .stat .value.warn { color: var(--warn); }
+  .stat .value.danger { color: var(--danger); }
+
+  /* ── Safety Badge ── */
+  .safety-badge {
+    display: inline-block; padding: 4px 12px; border-radius: 20px;
+    font-size: 13px; font-weight: 700;
+  }
+  .safety-REST { background: #7f1d1d; color: #fca5a5; }
+  .safety-EASY { background: #78350f; color: #fcd34d; }
+  .safety-MODERATE { background: #1e3a5f; color: #93c5fd; }
+  .safety-HARD { background: #14532d; color: #86efac; }
+  .safety-LONG { background: #4c1d95; color: #c4b5fd; }
+
+  /* ── Chart Container ── */
+  .chart-wrap { position: relative; height: 200px; margin: 8px 0; }
+  .chart-wrap canvas { width: 100% !important; }
+
+  /* ── Chat ── */
+  #chat-messages {
+    display: flex; flex-direction: column; gap: 8px;
+    max-height: calc(100vh - 220px); overflow-y: auto;
+    padding: 4px 0; margin-bottom: 12px;
+  }
+  .msg {
+    padding: 10px 14px; border-radius: var(--radius-sm); max-width: 88%;
+    font-size: 14px; line-height: 1.5; word-break: break-word;
+  }
+  .msg.user { align-self: flex-end; background: var(--accent); color: #fff; }
+  .msg.assistant { align-self: flex-start; background: var(--bg-card); border: 1px solid var(--border); }
+  .msg.assistant.streaming { border-color: var(--accent); }
+  .msg .time { font-size: 10px; opacity: .6; margin-top: 4px; }
+  .msg .safety-context {
+    font-size: 11px; padding: 4px 8px; margin-bottom: 6px;
+    background: rgba(0,0,0,.3); border-radius: 4px;
+  }
+
+  .chat-input-wrap {
+    display: flex; gap: 8px; background: var(--bg-card);
+    padding: 8px; border-radius: var(--radius); border: 1px solid var(--border);
+    position: sticky; bottom: 16px;
+  }
+  .chat-input-wrap input {
+    flex:1; background: var(--bg-input); border: none; color: var(--text);
+    padding: 10px 14px; border-radius: var(--radius-sm); font-size: 14px;
+    outline: none;
+  }
+  .chat-input-wrap input::placeholder { color: var(--text-muted); }
+  .chat-input-wrap button {
+    background: var(--accent); color: #fff; border: none;
+    padding: 10px 16px; border-radius: var(--radius-sm); font-size: 14px;
+    font-weight: 600; cursor: pointer; transition: background .2s;
+    white-space: nowrap;
+  }
+  .chat-input-wrap button:disabled { background: var(--bg-input); color: var(--text-muted); cursor: not-allowed; }
+  .chat-input-wrap button:hover:not(:disabled) { background: var(--accent-dim); }
+
+  .quick-actions { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 8px; }
+  .quick-btn {
+    background: var(--bg-card); color: var(--text-muted); border: 1px solid var(--border);
+    padding: 5px 12px; border-radius: 16px; font-size: 12px; cursor: pointer;
+    transition: all .2s;
+  }
+  .quick-btn:hover { background: var(--accent); color: #fff; border-color: var(--accent); }
+
+  /* ── History List ── */
+  .activity-item {
+    padding: 12px; border-bottom: 1px solid var(--border);
+    display: flex; justify-content: space-between; align-items: center;
+    cursor: pointer; transition: background .2s;
+  }
+  .activity-item:hover { background: var(--bg-card); }
+  .activity-item .act-icon { font-size: 24px; margin-right: 12px; }
+  .activity-item .act-info { flex:1; }
+  .activity-item .act-info .act-title { font-size: 14px; font-weight: 600; }
+  .activity-item .act-info .act-detail { font-size: 12px; color: var(--text-muted); }
+
+  /* ── Loading ── */
+  .loading {
+    display: flex; align-items: center; justify-content: center;
+    padding: 40px; color: var(--text-muted);
+  }
+  .spinner {
+    width: 24px; height: 24px; border: 3px solid var(--border);
+    border-top-color: var(--accent); border-radius: 50%;
+    animation: spin .6s linear infinite; margin-right: 8px;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* ── Header right-side buttons ── */
+  .header-actions { display: flex; gap: 8px; align-items: center; }
+  .header-btn {
+    background: var(--bg-card); color: var(--text);
+    border: 1px solid var(--border);
+    padding: 6px 12px; border-radius: var(--radius-sm);
+    font-size: 13px; cursor: pointer; transition: all .2s;
+    white-space: nowrap;
+  }
+  .header-btn:hover { background: var(--bg-input); border-color: var(--accent); }
+  .header-btn.danger:hover { background: var(--danger); border-color: var(--danger); color: #fff; }
+
+  /* ── Account overlay (full-screen on top of tabs) ── */
+  .overlay {
+    position: fixed; inset: 0; z-index: 200;
+    background: var(--bg);
+    display: flex; flex-direction: column;
+    overflow-y: auto;
+  }
+  .overlay.hidden { display: none; }
+  .overlay-header {
+    position: sticky; top: 0; z-index: 10;
+    background: var(--bg); border-bottom: 1px solid var(--border);
+    padding: 12px 16px; display: flex; align-items: center; gap: 12px;
+  }
+  .overlay-header h2 { font-size: 18px; font-weight: 700; }
+  .back-btn {
+    background: transparent; border: 1px solid var(--border);
+    color: var(--text); padding: 6px 12px; border-radius: var(--radius-sm);
+    font-size: 14px; cursor: pointer;
+  }
+  .back-btn:hover { background: var(--bg-card); }
+  .overlay-body { padding: 16px; max-width: 800px; margin: 0 auto; width: 100%; }
+
+  /* ── Account page sections ── */
+  .account-section { margin-bottom: 24px; }
+  .account-section-title {
+    font-size: 13px; color: var(--text-muted);
+    text-transform: uppercase; letter-spacing: .5px;
+    margin-bottom: 8px;
+  }
+  .account-info-row {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 12px 0; border-bottom: 1px solid var(--border);
+  }
+  .account-info-row:last-child { border-bottom: none; }
+  .account-info-row .label { font-size: 13px; color: var(--text-muted); }
+  .account-info-row .value { font-size: 14px; font-weight: 500; }
+
+  /* ── Device list ── */
+  .device-list { margin-bottom: 12px; }
+  .device-row {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 10px 12px; background: var(--bg-card);
+    border: 1px solid var(--border); border-radius: var(--radius-sm);
+    margin-bottom: 8px;
+  }
+  .device-row .dev-info { flex: 1; }
+  .device-row .dev-brand { font-size: 14px; font-weight: 600; }
+  .device-row .dev-account { font-size: 12px; color: var(--text-muted); }
+  .device-row .dev-actions { display: flex; gap: 6px; }
+  .device-row .dev-actions button {
+    background: transparent; border: 1px solid var(--border);
+    color: var(--text); padding: 4px 10px; border-radius: var(--radius-sm);
+    font-size: 12px; cursor: pointer;
+  }
+  .device-row .dev-actions button:hover { background: var(--bg-input); }
+  .device-row .dev-actions .danger:hover { background: var(--danger); border-color: var(--danger); color: #fff; }
+
+  /* ── Bind form ── */
+  .bind-form { display: flex; flex-direction: column; gap: 8px; }
+  .bind-form label { font-size: 12px; color: var(--text-muted); }
+  .bind-form input, .bind-form select {
+    background: var(--bg-input); border: 1px solid var(--border);
+    color: var(--text); padding: 10px 12px; border-radius: var(--radius-sm);
+    font-size: 14px; outline: none;
+  }
+  .bind-form input:focus, .bind-form select:focus { border-color: var(--accent); }
+  .bind-form button {
+    background: var(--accent); color: #fff; border: none;
+    padding: 10px 16px; border-radius: var(--radius-sm);
+    font-size: 14px; font-weight: 600; cursor: pointer;
+    margin-top: 4px;
+  }
+  .bind-form button:hover { background: var(--accent-dim); }
+  .bind-form button:disabled { background: var(--bg-input); color: var(--text-muted); cursor: not-allowed; }
+  .bind-form .mfa-hint {
+    font-size: 12px; color: var(--warn);
+    background: rgba(245,158,11,.1); border: 1px solid var(--warn);
+    padding: 8px 12px; border-radius: var(--radius-sm); margin-top: 4px;
+  }
+  .bind-form .msg { margin-top: 8px; }
+
+  /* ── Logout button (full-width danger) ── */
+  .logout-btn {
+    width: 100%; background: transparent; color: var(--danger);
+    border: 1px solid var(--danger); padding: 12px;
+    border-radius: var(--radius); font-size: 14px; font-weight: 600;
+    cursor: pointer;
+  }
+  .logout-btn:hover { background: var(--danger); color: #fff; }
+
+  /* ── Responsive ── */
+  @media (max-width: 480px) {
+    .card-row { flex-direction: column; }
+    .stat .value { font-size: 24px; }
+    header h1 { font-size: 16px; }
+    .msg { max-width: 92%; }
+    .header-btn { padding: 5px 8px; font-size: 12px; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1><span class="dot" id="status-dot"></span> Garmin Coach <span class="time" id="header-time" style="margin-left:8px;font-size:12px;color:var(--text-muted)"></span></h1>
+  <div class="header-actions">
+    <button id="btn-sync" class="header-btn">🔄 同步</button>
+    <button id="btn-account" class="header-btn">⚙️ 查看账号</button>
+  </div>
+</header>
+
+<nav class="tabs">
+  <button class="active" data-tab="dashboard">📊 仪表盘</button>
+  <button data-tab="chat">💬 对话</button>
+  <button data-tab="history">📋 记录</button>
+</nav>
+
+<main>
+  <!-- ═══ 仪表盘 ═══ -->
+  <div class="tab-content active" id="tab-dashboard">
+    <div class="card" id="safety-card">
+      <h3>🛡️ 安全档位</h3>
+      <div id="safety-content"><div class="loading"><div class="spinner"></div>加载中...</div></div>
+    </div>
+
+    <div class="card-row">
+      <div class="card" id="sleep-card">
+        <h3>💤 昨夜睡眠</h3>
+        <div id="sleep-content"></div>
+      </div>
+      <div class="card" id="hrv-card">
+        <h3>🫀 HRV · 静息心率</h3>
+        <div id="hrv-content"></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>📈 7 天趋势</h3>
+      <div class="chart-wrap"><canvas id="chart-hrv"></canvas></div>
+    </div>
+
+    <div class="card">
+      <h3>🏃 本周跑量</h3>
+      <div id="week-summary"></div>
+    </div>
+
+    <div class="card">
+      <h3>🌤️ 今日天气</h3>
+      <div id="weather-content"></div>
+    </div>
+
+    <div class="card">
+      <h3>🫁 心肺 · 预测</h3>
+      <div id="fitness-content"></div>
+    </div>
+  </div>
+
+  <!-- ═══ 对话 ═══ -->
+  <div class="tab-content" id="tab-chat">
+    <div id="chat-messages">
+      <div class="msg assistant">
+        👋 我是 Jarvis，你的运动教练。问我"今晚跑不跑？""状态怎么样？"或者任何运动和身体的问题。
+      </div>
+    </div>
+    <div class="quick-actions" id="quick-actions">
+      <button class="quick-btn" data-msg="今晚跑不跑？">今晚跑不跑？</button>
+      <button class="quick-btn" data-msg="我状态怎么样？">状态怎么样？</button>
+      <button class="quick-btn" data-msg="这周跑量怎么样？">这周跑量</button>
+      <button class="quick-btn" data-msg="帮我看看最近训练趋势">训练趋势</button>
+      <button class="quick-btn" data-msg="明天怎么练？">明天怎么练？</button>
+    </div>
+    <div class="chat-input-wrap">
+      <input type="text" id="chat-input" placeholder="问 Jarvis..." autocomplete="off">
+      <button id="chat-send">发送</button>
+    </div>
+  </div>
+
+  <!-- ═══ 记录 ═══ -->
+  <div class="tab-content" id="tab-history">
+    <div class="card" id="recent-activities">
+      <h3>最近活动</h3>
+      <div id="activities-list"><div class="loading"><div class="spinner"></div>加载中...</div></div>
+    </div>
+  </div>
+</main>
+
+<!-- ═══ 登录 overlay ═══ -->
+<div id="login-overlay" class="overlay hidden">
+  <div class="overlay-header">
+    <h2>登录 Garmin Coach</h2>
+  </div>
+  <div class="overlay-body">
+    <div class="card">
+      <form class="bind-form" id="login-form" autocomplete="off">
+        <label for="login-phone">手机号</label>
+        <input type="tel" id="login-phone" placeholder="11 位手机号" autocomplete="username">
+        <label for="login-password">密码</label>
+        <input type="password" id="login-password" placeholder="密码" autocomplete="current-password">
+        <button type="submit" id="btn-login">登录</button>
+        <div class="msg" id="login-msg"></div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ 查看账号 overlay ═══ -->
+<div id="account-overlay" class="overlay hidden">
+  <div class="overlay-header">
+    <button class="back-btn" id="btn-account-back">← 返回</button>
+    <h2>账号</h2>
+  </div>
+  <div class="overlay-body">
+
+    <!-- 当前账号 -->
+    <div class="account-section">
+      <div class="account-section-title">当前账号</div>
+      <div class="card">
+        <div class="account-info-row">
+          <span class="label">手机号</span>
+          <span class="value" id="account-phone">加载中...</span>
+        </div>
+        <div class="account-info-row">
+          <span class="label">注册时间</span>
+          <span class="value" id="account-created">—</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- 绑定设备 -->
+    <div class="account-section">
+      <div class="account-section-title">已绑定设备</div>
+      <div id="device-list" class="device-list">
+        <div class="loading"><div class="spinner"></div>加载中...</div>
+      </div>
+
+      <div class="account-section-title" style="margin-top:16px">绑定新设备</div>
+      <div class="card">
+        <form class="bind-form" id="bind-form" autocomplete="off">
+          <label for="bind-brand">设备品牌</label>
+          <select id="bind-brand">
+            <option value="garmin">Garmin（佳明）</option>
+            <option value="coros">Coros（高驰）</option>
+            <option value="apple">Apple Watch</option>
+            <option value="huawei">华为</option>
+            <option value="xiaomi">小米</option>
+          </select>
+          <label for="bind-account">账号（邮箱/手机）</label>
+          <input type="text" id="bind-account" placeholder="登录账号" autocomplete="off">
+          <label for="bind-password">密码</label>
+          <input type="password" id="bind-password" placeholder="登录密码" autocomplete="new-password">
+          <div id="bind-mfa-area"></div>
+          <button type="submit" id="btn-bind">绑定</button>
+          <div class="msg" id="bind-msg"></div>
+        </form>
+      </div>
+    </div>
+
+    <!-- 退出登录 -->
+    <div class="account-section">
+      <button class="logout-btn" id="btn-logout">退出登录</button>
+    </div>
+
+  </div>
+</div>
+
+<script>
+// ═══════════════════════════════════════════════
+// App State
+// ═══════════════════════════════════════════════
+const API = '';
+const TOKEN_KEY = 'garmin_token';
+const USER_KEY = 'garmin_user_id';
+
+function getToken() { return localStorage.getItem(TOKEN_KEY); }
+function setToken(t, uid) {
+  localStorage.setItem(TOKEN_KEY, t);
+  if (uid) localStorage.setItem(USER_KEY, uid);
+}
+function clearAuth() {
+  localStorage.removeItem(TOKEN_KEY);
+  localStorage.removeItem(USER_KEY);
+}
+
+// fetch 包装：自动带 Authorization，401 时弹登录
+async function fetchAuth(url, opts = {}) {
+  const token = getToken();
+  const headers = { ...(opts.headers || {}) };
+  if (token) headers['Authorization'] = 'Bearer ' + token;
+  if (opts.body && typeof opts.body === 'object' && !(opts.body instanceof FormData)) {
+    headers['Content-Type'] = 'application/json';
+    opts = { ...opts, body: JSON.stringify(opts.body) };
+  }
+  const res = await fetch(API + url, { ...opts, headers });
+  if (res.status === 401 && !url.includes('/api/auth/login')) {
+    showLoginOverlay();
+    throw new Error('未登录');
+  }
+  return res;
+}
+
+let currentTab = 'dashboard';
+let ws = null;
+let isStreaming = false;
+let dashboardData = null;
+
+// ═══════════════════════════════════════════════
+// Tabs
+// ═══════════════════════════════════════════════
+document.querySelectorAll('nav.tabs button').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('nav.tabs button').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+    btn.classList.add('active');
+    currentTab = btn.dataset.tab;
+    document.getElementById('tab-' + currentTab).classList.add('active');
+    if (currentTab === 'dashboard') refreshDashboard();
+    if (currentTab === 'history') refreshHistory();
+  });
+});
+
+// ═══════════════════════════════════════════════
+// Dashboard
+// ═══════════════════════════════════════════════
+async function refreshDashboard() {
+  try {
+    const res = await fetchAuth('/api/health/dashboard');
+    dashboardData = await res.json();
+
+    document.getElementById('header-time').textContent =
+      dashboardData.datetime + ' · ' + dashboardData.period;
+    document.getElementById('status-dot').style.background =
+      dashboardData.safety?.max_tier === 'REST' ? 'var(--danger)' :
+      dashboardData.safety?.max_tier === 'EASY' ? 'var(--warn)' : 'var(--success)';
+
+    renderSafety(dashboardData.safety);
+    renderSleep(dashboardData.today);
+    renderHRV(dashboardData.today);
+    renderChart(dashboardData.charts);
+    renderWeekSummary(dashboardData);
+    renderWeather(dashboardData.today);
+    renderFitness(dashboardData.today);
+  } catch (e) {
+    console.error('Dashboard load error:', e);
+  }
+}
+
+function renderSafety(safety) {
+  if (!safety) return;
+  const tier = safety.max_tier || '?';
+  const desc = safety.tier_description || '';
+  let html = `<span class="safety-badge safety-${tier}">${tier}</span> <span style="margin-left:8px;font-size:14px">${desc}</span>`;
+  if (safety.blockers?.length) {
+    html += '<div style="margin-top:8px;font-size:13px;color:var(--warn)">';
+    safety.blockers.forEach(b => html += `<div>⚠️ ${b}</div>`);
+    html += '</div>';
+  }
+  if (safety.notes?.length) {
+    html += '<div style="margin-top:6px;font-size:12px;color:var(--text-muted)">';
+    safety.notes.forEach(n => html += `<div>💡 ${n}</div>`);
+    html += '</div>';
+  }
+  document.getElementById('safety-content').innerHTML = html;
+}
+
+function renderSleep(today) {
+  if (!today) return;
+  const hours = today.sleep_hours || '?';
+  const score = today.sleep_score || '?';
+  const deep = today.sleep_deep_min || '?';
+  const html = `
+    <div class="stat">
+      <div class="value">${hours}<span style="font-size:16px">h</span></div>
+      <div class="label">睡眠时长</div>
+      <div class="sub">得分 ${score} · 深睡 ${deep}min</div>
+    </div>`;
+  document.getElementById('sleep-content').innerHTML = html;
+}
+
+function renderHRV(today) {
+  if (!today) return;
+  const hrv = today.hrv || '?';
+  const status = today.hrv_status || '';
+  let cls = 'value';
+  if (status === 'POOR' || status === 'LOW') cls = 'value danger';
+  else if (status === 'UNBALANCED') cls = 'value warn';
+
+  const html = `
+    <div class="stat">
+      <div class="${cls}">${hrv} <span style="font-size:14px">${status}</span></div>
+      <div class="label">HRV</div>
+      <div class="sub">静息心率 ${today.resting_hr || '?'} · BB ${today.body_battery_high || '?'}</div>
+    </div>`;
+  document.getElementById('hrv-content').innerHTML = html;
+}
+
+function renderWeather(today) {
+  if (!today) return;
+  const w = {};
+  if (today.weather_desc) w.desc = today.weather_desc;
+  if (today.weather_high) w.high = today.weather_high;
+  if (today.weather_low) w.low = today.weather_low;
+  if (today.weather_humidity) w.humidity = today.weather_humidity;
+  if (today.weather_aqi) w.aqi = today.weather_aqi;
+  if (!w.desc) { document.getElementById('weather-content').innerHTML = '<span style="color:var(--text-muted)">暂无天气数据（运行 weather_sync.py 同步）</span>'; return; }
+  document.getElementById('weather-content').innerHTML = `
+    <div style="display:flex;gap:24px;flex-wrap:wrap">
+      <div class="stat"><div class="value" style="font-size:22px">${w.desc}</div><div class="label">天气</div></div>
+      <div class="stat"><div class="value" style="font-size:22px">${w.low}~${w.high}°C</div><div class="label">温度</div></div>
+      <div class="stat"><div class="value" style="font-size:22px">${w.humidity || '?'}%</div><div class="label">湿度</div></div>
+      <div class="stat"><div class="value" style="font-size:22px">${w.aqi || '?'}</div><div class="label">AQI</div></div>
+    </div>`;
+}
+
+function renderFitness(today) {
+  if (!today) return;
+  let html = '<div style="display:flex;gap:24px;flex-wrap:wrap">';
+  if (today.vo2max) html += `<div class="stat"><div class="value" style="font-size:22px">${today.vo2max}</div><div class="label">VO₂Max</div></div>`;
+  if (today.training_status) html += `<div class="stat"><div class="value" style="font-size:22px">${today.training_status}</div><div class="label">训练状态</div></div>`;
+  if (today.fitness_age) html += `<div class="stat"><div class="value" style="font-size:22px">${today.fitness_age}岁</div><div class="label">健身年龄</div></div>`;
+  if (today.race_half) html += `<div class="stat"><div class="value" style="font-size:22px">${today.race_half}</div><div class="label">半马预测</div></div>`;
+  html += '</div>';
+  if (!today.vo2max && !today.training_status && !today.fitness_age && !today.race_half) html = '<span style="color:var(--text-muted)">暂无数据</span>';
+  document.getElementById('fitness-content').innerHTML = html;
+}
+
+function renderWeekSummary(data) {
+  const r = data.recent_7d || {};
+  const html = `
+    <div style="display:flex;gap:24px;flex-wrap:wrap">
+      <div class="stat"><div class="value" style="font-size:22px">${r.total_distance_km || 0} km</div><div class="label">7天跑量</div></div>
+      <div class="stat"><div class="value" style="font-size:22px">${r.run_count || 0} 次</div><div class="label">跑步次数</div></div>
+      <div class="stat"><div class="value" style="font-size:22px">${r.total_duration_min || 0} min</div><div class="label">总时长</div></div>
+      <div class="stat"><div class="value" style="font-size:22px">${r.avg_hrv || '?'}</div><div class="label">平均 HRV</div></div>
+    </div>`;
+  document.getElementById('week-summary').innerHTML = html;
+}
+
+let chartInstance = null;
+function renderChart(charts) {
+  if (!charts) return;
+  const ctx = document.getElementById('chart-hrv').getContext('2d');
+  if (chartInstance) chartInstance.destroy();
+
+  const labels = (charts.hrv_trend || []).map(d => d.date.slice(5));
+  const hrvData = (charts.hrv_trend || []).map(d => d.value);
+  const rhrData = (charts.rhr_trend || []).map(d => d.value);
+
+  chartInstance = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [
+        {
+          label: 'HRV',
+          data: hrvData,
+          borderColor: '#3b82f6',
+          backgroundColor: 'rgba(59,130,246,0.1)',
+          fill: true,
+          tension: 0.4,
+          pointRadius: 3,
+          yAxisID: 'y',
+        },
+        {
+          label: '静息心率',
+          data: rhrData,
+          borderColor: '#22c55e',
+          backgroundColor: 'rgba(34,197,94,0.1)',
+          fill: true,
+          tension: 0.4,
+          pointRadius: 3,
+          yAxisID: 'y1',
+        },
+      ],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      interaction: { intersect: false, mode: 'index' },
+      plugins: {
+        legend: { labels: { color: '#94a3b8', font: { size: 11 }, usePointStyle: true } },
+      },
+      scales: {
+        x: { ticks: { color: '#64748b', font: { size: 10 } }, grid: { color: '#1e293b' } },
+        y: {
+          type: 'linear',
+          position: 'left',
+          ticks: { color: '#3b82f6', font: { size: 10 } },
+          grid: { color: '#1e293b' },
+        },
+        y1: {
+          type: 'linear',
+          position: 'right',
+          ticks: { color: '#22c55e', font: { size: 10 } },
+          grid: { display: false },
+        },
+      },
+    },
+  });
+}
+
+// ═══════════════════════════════════════════════
+// Chat
+// ═══════════════════════════════════════════════
+const chatMessages = document.getElementById('chat-messages');
+const chatInput = document.getElementById('chat-input');
+const chatSend = document.getElementById('chat-send');
+
+chatSend.addEventListener('click', sendChat);
+chatInput.addEventListener('keydown', e => { if (e.key === 'Enter' && !isStreaming) sendChat(); });
+
+document.querySelectorAll('.quick-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    if (isStreaming) return;
+    chatInput.value = btn.dataset.msg;
+    sendChat();
+  });
+});
+
+async function sendChat() {
+  const msg = chatInput.value.trim();
+  if (!msg || isStreaming) return;
+  chatInput.value = '';
+  document.getElementById('quick-actions').style.display = 'none';
+
+  addMessage('user', msg);
+  const assistantMsg = addMessage('assistant', '', true);
+
+  isStreaming = true;
+  chatSend.disabled = true;
+
+  try {
+    // 使用 WebSocket 流式
+    const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const wsUrl = `${protocol}//${location.host}/ws/chat`;
+    ws = new WebSocket(wsUrl);
+
+    ws.onopen = () => {
+      ws.send(JSON.stringify({ message: msg }));
+    };
+
+    ws.onmessage = (event) => {
+      const data = JSON.parse(event.data);
+      if (data.type === 'context') {
+        // 显示安全档位提示
+        const safety = data.safety;
+        if (safety) {
+          const ctxDiv = document.createElement('div');
+          ctxDiv.className = 'safety-context';
+          ctxDiv.innerHTML = `🛡️ 安全档位: <span class="safety-badge safety-${safety.max_tier}" style="font-size:11px">${safety.max_tier}</span> ${safety.tier_description || ''}`;
+          assistantMsg.querySelector('.msg-content').appendChild(ctxDiv);
+        }
+      } else if (data.type === 'token') {
+        assistantMsg.querySelector('.msg-content').innerHTML += data.token
+          .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+          .replace(/\n/g, '<br>');
+        chatMessages.scrollTop = chatMessages.scrollHeight;
+      } else if (data.type === 'done') {
+        assistantMsg.classList.remove('streaming');
+        isStreaming = false;
+        chatSend.disabled = false;
+        chatInput.focus();
+        if (ws) { ws.close(); ws = null; }
+      } else if (data.type === 'error') {
+        assistantMsg.querySelector('.msg-content').innerHTML += `<br><span style="color:var(--danger)">❌ ${data.message}</span>`;
+        assistantMsg.classList.remove('streaming');
+        isStreaming = false;
+        chatSend.disabled = false;
+        if (ws) { ws.close(); ws = null; }
+      }
+    };
+
+    ws.onerror = () => {
+      assistantMsg.querySelector('.msg-content').innerHTML += '<br><span style="color:var(--danger)">❌ 连接失败</span>';
+      assistantMsg.classList.remove('streaming');
+      isStreaming = false;
+      chatSend.disabled = false;
+      ws = null;
+    };
+
+    ws.onclose = () => {
+      if (isStreaming) {
+        assistantMsg.classList.remove('streaming');
+        isStreaming = false;
+        chatSend.disabled = false;
+      }
+    };
+
+  } catch (e) {
+    assistantMsg.querySelector('.msg-content').innerHTML = `❌ ${e.message}`;
+    assistantMsg.classList.remove('streaming');
+    isStreaming = false;
+    chatSend.disabled = false;
+  }
+}
+
+function addMessage(role, content, streaming = false) {
+  const div = document.createElement('div');
+  div.className = `msg ${role}${streaming ? ' streaming' : ''}`;
+  const now = new Date();
+  const time = `${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`;
+
+  if (role === 'user') {
+    div.innerHTML = `<div class="msg-content">${escapeHtml(content)}</div><div class="time">${time}</div>`;
+  } else {
+    div.innerHTML = `<div class="msg-content">${content}</div><div class="time">${time}</div>`;
+  }
+
+  chatMessages.appendChild(div);
+  chatMessages.scrollTop = chatMessages.scrollHeight;
+  return div;
+}
+
+function escapeHtml(text) {
+  return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+// ═══════════════════════════════════════════════
+// History
+// ═══════════════════════════════════════════════
+async function refreshHistory() {
+  try {
+    const res = await fetchAuth('/api/health/recent/30');
+    const days = await res.json();
+    const allActivities = [];
+    days.forEach(d => {
+      (d.activities || []).forEach(a => {
+        allActivities.push({ ...a, date: d.date, weekday: d.weekday });
+      });
+    });
+    allActivities.sort((a, b) => b.date.localeCompare(a.date) || (b.time || '').localeCompare(a.time || ''));
+
+    const container = document.getElementById('activities-list');
+    if (!allActivities.length) {
+      container.innerHTML = '<div style="padding:16px;color:var(--text-muted)">暂无活动记录</div>';
+      return;
+    }
+
+    const emoji = { running: '🏃', cycling: '🚴', walking: '🚶', strength_training: '💪' };
+    container.innerHTML = allActivities.slice(0, 30).map(a => `
+      <div class="activity-item" onclick="showActivityDetail('${a.activity_id}')">
+        <div class="act-icon">${emoji[a.type] || '🏋️'}</div>
+        <div class="act-info">
+          <div class="act-title">${a.type === 'running' ? '跑步' : a.type || '运动'} · ${a.distance_km || '?'}km · ${a.duration_min || '?'}min</div>
+          <div class="act-detail">${a.date} 周${a.weekday || '?'} · ${a.time || ''} · 心率${a.avg_hr || '?'} · 配速${a.avg_pace || '?'}</div>
+        </div>
+      </div>
+    `).join('');
+  } catch (e) {
+    console.error('History load error:', e);
+  }
+}
+
+async function showActivityDetail(activityId) {
+  try {
+    const res = await fetchAuth(`/api/health/activity/${activityId}`);
+    const a = await res.json();
+    const zones = a.hr_zones || {};
+    const totalSec = Object.values(zones).reduce((s, v) => s + (typeof v === 'number' ? v : 0), 0) || 1;
+    const z5Pct = ((zones.z5_sec || 0) / totalSec * 100).toFixed(0);
+
+    let detail = `
+      🏃 活动 ${activityId}
+      ━━━━━━━━━━━━━━━━━━
+      距离: ${a.distance_km}km · 时长: ${a.duration_min}min
+      配速: ${a.avg_pace} · 心率: ${a.avg_hr}/${a.max_hr}
+      训练效果: 有氧 ${a.training_effect_aerobic} / 无氧 ${a.training_effect_anaerobic}
+      Zone 5: ${z5Pct}%`;
+
+    if (a.splits?.length) {
+      detail += '\n\n分段:';
+      a.splits.filter(s => s.dist_km >= 0.5).forEach(s => {
+        detail += `\n  ${s.km}km: ${s.pace} · 心率${s.hr}`;
+      });
+    }
+
+    alert(detail);
+  } catch (e) {
+    alert('加载活动详情失败');
+  }
+}
+
+// ═══════════════════════════════════════════════
+// Init
+// ═══════════════════════════════════════════════
+refreshDashboard();
+
+// 定时刷新仪表盘（5分钟）
+setInterval(() => {
+  if (currentTab === 'dashboard') refreshDashboard();
+}, 300000);
+
+// 注册 Service Worker (PWA)
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('/static/sw.js').catch(() => {});
+}
+
+// ═══════════════════════════════════════════════
+// Login overlay + auth-required gate
+// ═══════════════════════════════════════════════
+const loginOverlay = document.getElementById('login-overlay');
+const loginForm = document.getElementById('login-form');
+const loginMsg = document.getElementById('login-msg');
+
+function showLoginOverlay() {
+  loginOverlay.classList.remove('hidden');
+}
+function hideLoginOverlay() {
+  loginOverlay.classList.add('hidden');
+  loginMsg.textContent = '';
+}
+
+loginForm.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const phone = document.getElementById('login-phone').value.trim();
+  const password = document.getElementById('login-password').value;
+  if (!phone || !password) {
+    loginMsg.innerHTML = '<span style="color:var(--danger)">请填写手机号和密码</span>';
+    return;
+  }
+  const btnLogin = document.getElementById('btn-login');
+  btnLogin.disabled = true;
+  btnLogin.textContent = '登录中...';
+  try {
+    const res = await fetch(API + '/api/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ phone, password }),
+    });
+    const data = await res.json();
+    if (res.ok) {
+      setToken(data.token, data.user_id);
+      hideLoginOverlay();
+      refreshDashboard();
+      // 如果账号页开着，重新加载
+      if (!accountOverlay.classList.contains('hidden')) {
+        loadAccountInfo();
+        loadDeviceList();
+      }
+    } else {
+      loginMsg.innerHTML = '<span style="color:var(--danger)">❌ ' + (data.detail || '登录失败') + '</span>';
+    }
+  } catch (err) {
+    loginMsg.innerHTML = '<span style="color:var(--danger)">❌ 网络错误</span>';
+  } finally {
+    btnLogin.disabled = false;
+    btnLogin.textContent = '登录';
+  }
+});
+
+// 启动时检查：有 token 才正常加载，没 token 弹登录
+if (!getToken()) {
+  showLoginOverlay();
+}
+const accountOverlay = document.getElementById('account-overlay');
+const btnAccount = document.getElementById('btn-account');
+const btnAccountBack = document.getElementById('btn-account-back');
+const btnSync = document.getElementById('btn-sync');
+const btnLogout = document.getElementById('btn-logout');
+
+btnAccount.addEventListener('click', () => openAccount());
+btnAccountBack.addEventListener('click', () => closeAccount());
+
+btnSync.addEventListener('click', async () => {
+  btnSync.disabled = true;
+  btnSync.textContent = '⏳ 同步中...';
+  try {
+    const res = await fetchAuth('/api/health/sync', { method: 'POST' });
+    const data = await res.json();
+    if (res.ok) {
+      btnSync.textContent = '✅ 已同步';
+      if (currentTab === 'dashboard') refreshDashboard();
+    } else {
+      btnSync.textContent = '❌ ' + (data.detail || '失败');
+    }
+  } catch (e) {
+    btnSync.textContent = '❌ 网络错误';
+  }
+  setTimeout(() => { btnSync.textContent = '🔄 同步'; btnSync.disabled = false; }, 3000);
+});
+
+btnLogout.addEventListener('click', () => {
+  if (!confirm('确定要退出登录吗？退出后需要重新输入手机号和密码。')) return;
+  localStorage.removeItem('garmin_token');
+  localStorage.removeItem('garmin_user_id');
+  location.reload();
+});
+
+function openAccount() {
+  accountOverlay.classList.remove('hidden');
+  loadAccountInfo();
+  loadDeviceList();
+}
+
+function closeAccount() {
+  accountOverlay.classList.add('hidden');
+}
+
+async function loadAccountInfo() {
+  const phoneEl = document.getElementById('account-phone');
+  const createdEl = document.getElementById('account-created');
+  try {
+    const res = await fetchAuth('/api/auth/me');
+    if (res.status === 401) {
+      phoneEl.textContent = '未登录';
+      return;
+    }
+    const data = await res.json();
+    phoneEl.textContent = data.phone || '—';
+    if (data.created_at) {
+      // created_at 是 ISO 字符串，格式化成 YYYY-MM-DD HH:MM
+      const d = new Date(data.created_at.replace(' ', 'T') + (data.created_at.includes('Z') ? '' : 'Z'));
+      if (!isNaN(d)) createdEl.textContent = d.toLocaleString('zh-CN', { hour12: false });
+    }
+  } catch (e) {
+    phoneEl.textContent = '加载失败';
+  }
+}
+
+async function loadDeviceList() {
+  const container = document.getElementById('device-list');
+  try {
+    const res = await fetchAuth('/api/watch/list');
+    if (res.status === 401) {
+      container.innerHTML = '<div style="padding:12px;color:var(--text-muted)">请先登录</div>';
+      return;
+    }
+    const data = await res.json();
+    const brands = { garmin: 'Garmin', coros: 'Coros', apple: 'Apple Watch', huawei: '华为', xiaomi: '小米' };
+    if (!data || !data.length) {
+      container.innerHTML = '<div style="padding:12px;color:var(--text-muted);background:var(--bg-card);border-radius:var(--radius-sm)">还没有绑定任何设备</div>';
+      return;
+    }
+    container.innerHTML = data.map(d => `
+      <div class="device-row">
+        <div class="dev-info">
+          <div class="dev-brand">${brands[d.brand] || d.brand}</div>
+          <div class="dev-account">${d.account || ''} ${d.enabled ? '' : '（已停用）'}</div>
+        </div>
+        <div class="dev-actions">
+          <button onclick="toggleDevice('${d.brand}', ${!d.enabled})">${d.enabled ? '停用' : '启用'}</button>
+          <button class="danger" onclick="unbindDevice('${d.brand}')">解绑</button>
+        </div>
+      </div>
+    `).join('');
+  } catch (e) {
+    container.innerHTML = '<div style="padding:12px;color:var(--danger)">加载失败</div>';
+  }
+}
+
+async function toggleDevice(brand, enable) {
+  try {
+    const res = await fetchAuth('/api/watch/toggle', {
+      method: 'POST',
+      body: { brand, enabled: enable },
+    });
+    if (res.ok) loadDeviceList();
+    else alert('操作失败');
+  } catch (e) {
+    alert('网络错误');
+  }
+}
+
+async function unbindDevice(brand) {
+  if (!confirm(`确定要解绑 ${brand} 吗？`)) return;
+  try {
+    const res = await fetchAuth(`/api/watch/unbind?brand=${encodeURIComponent(brand)}`, { method: 'DELETE' });
+    if (res.ok) loadDeviceList();
+    else alert('解绑失败');
+  } catch (e) {
+    alert('网络错误');
+  }
+}
+
+// 绑定设备表单
+let bindState = { needsMfa: false };
+const bindForm = document.getElementById('bind-form');
+const bindMfaArea = document.getElementById('bind-mfa-area');
+const bindMsg = document.getElementById('bind-msg');
+
+bindForm.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  bindMsg.textContent = '';
+  bindMfaArea.innerHTML = '';
+
+  const brand = document.getElementById('bind-brand').value;
+  const account = document.getElementById('bind-account').value.trim();
+  const password = document.getElementById('bind-password').value;
+  const mfaCodeEl = document.getElementById('bind-mfa-code');
+  const mfaCode = mfaCodeEl ? mfaCodeEl.value.trim() : '';
+
+  if (!account || !password) {
+    bindMsg.innerHTML = '<span style="color:var(--danger)">请填写账号和密码</span>';
+    return;
+  }
+
+  const btnBind = document.getElementById('btn-bind');
+  btnBind.disabled = true;
+  btnBind.textContent = '绑定中...';
+
+  try {
+    let url = '/api/watch/bind';
+    let body = { brand, account, password };
+    if (bindState.needsMfa && mfaCode) {
+      url = '/api/watch/bind-mfa';
+      body = { mfa_code: mfaCode };
+    }
+
+    const res = await fetchAuth(url, { method: 'POST', body });
+    const data = await res.json();
+
+    if (res.ok && data.needs_mfa) {
+      // 显示 MFA 输入框
+      bindState.needsMfa = true;
+      bindMfaArea.innerHTML = '<div class="mfa-hint">📱 Garmin 检测到两步验证，请在下方输入验证码：</div><input type="text" id="bind-mfa-code" placeholder="6 位验证码" style="margin-top:6px">';
+      bindMsg.innerHTML = '<span style="color:var(--warn)">请输入两步验证码后再次点击绑定</span>';
+    } else if (res.ok) {
+      bindMsg.innerHTML = '<span style="color:var(--success)">✅ ' + (data.message || '绑定成功') + '</span>';
+      // 清空表单 + 重新加载设备列表
+      document.getElementById('bind-account').value = '';
+      document.getElementById('bind-password').value = '';
+      bindMfaArea.innerHTML = '';
+      bindState.needsMfa = false;
+      loadDeviceList();
+    } else {
+      bindMsg.innerHTML = '<span style="color:var(--danger)">❌ ' + (data.detail || '绑定失败') + '</span>';
+    }
+  } catch (e) {
+    bindMsg.innerHTML = '<span style="color:var(--danger)">❌ 网络错误</span>';
+  } finally {
+    btnBind.disabled = false;
+    btnBind.textContent = '绑定';
+  }
+});
+
+// header 时间显示：dashboard 加载时由 refreshDashboard 更新到 #header-time 元素
+</script>
+</body>
+</html>

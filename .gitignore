@@ -1,0 +1,43 @@
+# ───────────── 凭据（绝对不能进版本库）─────────────
+.env
+.env.*
+!.env.example
+.deploy.env
+config/.tokens/
+*service-account*.json
+
+# ───────────── 个人运维文档（含服务器地址与部署细节）─────────────
+docs-private/
+
+# ───────────── 数据 ─────────────
+src/data/*.db
+src/data/*.db.bak
+src/data/*.sqlite
+*.db-journal
+
+# ───────────── 日志 ─────────────
+logs/
+*.log
+*.stackdump
+
+# ───────────── Python ─────────────
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+env/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+build/
+dist/
+
+# ───────────── 编辑器 / 系统 ─────────────
+.idea/
+.vscode/
+*.swp
+.DS_Store
+Thumbs.db
+desktop.ini
