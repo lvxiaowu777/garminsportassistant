@@ -31,7 +31,8 @@ if ENV_PATH.exists():
 
 from sqlalchemy import create_engine, select, func, inspect, text
 from sqlalchemy.orm import sessionmaker
-from sqlalchemy.dialects.mysql import insert as mysql_insert
+# 注意：这里不导入 sqlalchemy.dialects.mysql 的 insert —— 方言相关的语句统一由
+# 下面的 _insert_stmt / _upsert 按 engine.dialect.name 分派，避免绑定到单一数据库。
 
 from models import (
     Base, User, WatchBinding, HealthDaily, Activity, ChatHistory, DeviceToken,
@@ -51,6 +52,94 @@ if not DATABASE_URL:
 
 engine = create_engine(DATABASE_URL, pool_pre_ping=True, pool_recycle=3600, echo=False)
 SessionLocal = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
+
+
+# ═══════════════════════════════════════════════
+# 跨方言 SQL 辅助
+# ═══════════════════════════════════════════════
+#
+# 历史实现直接用了 sqlalchemy.dialects.mysql 的 insert，把整个项目钉死在 MySQL 上：
+# SQLite 下会抛 UnsupportedCompilationError（渲染不了 OnDuplicateClause），连启动都过不去。
+# 下面按 engine.dialect.name 分派，让本地开发和集成测试可以用 SQLite 跑。
+#
+# 同理 func.concat 是 MySQL 专有函数，SQLite / PostgreSQL 要用 || 拼接，
+# 所以「把一行追加到已有文本后面」也走辅助函数。
+
+
+def _insert_stmt(model, values: dict):
+    """按方言构造 INSERT（尚未附加冲突处理）。"""
+    dialect = engine.dialect.name
+    if dialect == "sqlite":
+        from sqlalchemy.dialects.sqlite import insert as _ins
+    elif dialect == "postgresql":
+        from sqlalchemy.dialects.postgresql import insert as _ins
+    else:
+        from sqlalchemy.dialects.mysql import insert as _ins
+    return _ins(model).values(**values)
+
+
+def _upsert(
+    model,
+    values: dict,
+    conflict_cols: list[str],
+    update_keys: list[str] | None = None,
+    do_nothing: bool = False,
+):
+    """跨方言「插入或更新」。
+
+    conflict_cols : 冲突判定键。MySQL 靠 PRIMARY/UNIQUE 自动识别，这里主要给 SQLite 的
+                    ON CONFLICT 用。
+    update_keys   : 冲突时要覆盖的列；None 表示「除冲突键外全部」。
+    do_nothing    : True 表示冲突时保持原值（等价于 INSERT IGNORE）。
+    """
+    stmt = _insert_stmt(model, values)
+
+    if do_nothing:
+        if engine.dialect.name == "mysql":
+            col = conflict_cols[0]
+            return stmt.on_duplicate_key_update(**{col: getattr(model, col)})
+        return stmt.on_conflict_do_nothing(index_elements=conflict_cols)
+
+    keys = (
+        update_keys
+        if update_keys is not None
+        else [k for k in values if k not in conflict_cols]
+    )
+    if not keys:
+        return _upsert(model, values, conflict_cols, do_nothing=True)
+
+    if engine.dialect.name == "mysql":
+        return stmt.on_duplicate_key_update(**{k: stmt.inserted[k] for k in keys})
+    return stmt.on_conflict_do_update(
+        index_elements=conflict_cols,
+        set_={k: stmt.excluded[k] for k in keys},
+    )
+
+
+def _append_concat(*parts):
+    """字符串拼接的跨方言写法：MySQL 用 CONCAT()，其它方言用 ||。"""
+    if engine.dialect.name == "mysql":
+        return func.concat(*parts)
+    expr = parts[0]
+    for part in parts[1:]:
+        expr = expr + part
+    return expr
+
+
+def _upsert_append(
+    model,
+    values: dict,
+    conflict_cols: list[str],
+    col_name: str,
+    suffix: str,
+):
+    """upsert，冲突时把 suffix 追加到 col_name 的既有值后面（日志式字段用）。"""
+    stmt = _insert_stmt(model, values)
+    column = getattr(model, col_name)
+    expr = _append_concat(func.coalesce(column, ""), "\n", suffix)
+    if engine.dialect.name == "mysql":
+        return stmt.on_duplicate_key_update(**{col_name: expr})
+    return stmt.on_conflict_do_update(index_elements=conflict_cols, set_={col_name: expr})
 
 
 def init_db():
@@ -158,9 +247,14 @@ def seed_exercise_names():
     session = SessionLocal()
     try:
         for name, aliases, category in DEFAULT_EXERCISES:
-            stmt = mysql_insert(ExerciseName).values(name=name, aliases=aliases, category=category)
-            stmt = stmt.on_duplicate_key_update(name=ExerciseName.name)
-            session.execute(stmt)
+            session.execute(
+                _upsert(
+                    ExerciseName,
+                    {"name": name, "aliases": aliases, "category": category},
+                    ["name"],
+                    do_nothing=True,
+                )
+            )
         session.commit()
     finally:
         session.close()
@@ -273,11 +367,7 @@ def upsert_health_daily(data: dict, user_id: int = 0, brand: str = "garmin"):
 
     session = SessionLocal()
     try:
-        stmt = mysql_insert(HealthDaily).values(**cols)
-        update_cols = {k: stmt.inserted[k] for k in cols if k not in ("date", "user_id", "brand")}
-        if update_cols:
-            stmt = stmt.on_duplicate_key_update(**update_cols)
-        session.execute(stmt)
+        session.execute(_upsert(HealthDaily, cols, ["date", "user_id", "brand"]))
 
         # 同步活动
         for act in data.get("activities") or []:
@@ -322,11 +412,7 @@ def _upsert_activity(session, date_str: str, act: dict, user_id: int = 0, brand:
     if not cols.get("activity_id"):
         return
 
-    stmt = mysql_insert(Activity).values(**cols)
-    update_cols = {k: stmt.inserted[k] for k in cols if k not in ("user_id", "brand", "activity_id")}
-    if update_cols:
-        stmt = stmt.on_duplicate_key_update(**update_cols)
-    session.execute(stmt)
+    session.execute(_upsert(Activity, cols, ["user_id", "brand", "activity_id"]))
 
 
 # ═══════════════════════════════════════════════
@@ -567,15 +653,15 @@ def update_activity_exercises(activity_id: str, user_id: int, exercises: list) -
             StrengthSet.__table__.delete().where(StrengthSet.activity_id == str(activity_id))
         )
         for ex in exercises or []:
-            session.execute(mysql_insert(StrengthSet).values(
-                activity_id=str(activity_id),
-                name=ex.get("name", ""),
-                sets=ex.get("sets"),
-                reps=ex.get("reps"),
-                reps_detail=ex.get("reps_detail"),
-                weight_kg=ex.get("weight_kg"),
-                equipment=ex.get("equipment"),
-            ))
+            session.execute(_insert_stmt(StrengthSet, {
+                "activity_id": str(activity_id),
+                "name": ex.get("name", ""),
+                "sets": ex.get("sets"),
+                "reps": ex.get("reps"),
+                "reps_detail": ex.get("reps_detail"),
+                "weight_kg": ex.get("weight_kg"),
+                "equipment": ex.get("equipment"),
+            }))
         session.commit()
         return True
     except Exception:
@@ -739,13 +825,15 @@ def add_note(date_str: str, text: str):
             )
         ).scalars().first()
         new_notes = (row + "\n" + entry) if row else entry
-        stmt = mysql_insert(HealthDaily).values(
-            date=date_str, user_id=0, brand="garmin", notes=new_notes,
+        session.execute(
+            _upsert_append(
+                HealthDaily,
+                {"date": date_str, "user_id": 0, "brand": "garmin", "notes": new_notes},
+                ["date", "user_id", "brand"],
+                "notes",
+                entry,
+            )
         )
-        stmt = stmt.on_duplicate_key_update(
-            notes=func.concat(func.coalesce(HealthDaily.notes, ""), "\n", entry),
-        )
-        session.execute(stmt)
         session.commit()
         return entry
     finally:
@@ -779,35 +867,39 @@ def record_training(user_id: int, train_type: str, duration_min: int, notes: str
             if existing:
                 activity_id = existing[0]
             else:
-                session.execute(mysql_insert(Activity).values(
-                    date=date_str, user_id=user_id, brand=brand, activity_id=activity_id,
-                    type=train_type, time=time_str, duration_min=duration_min or 30,
-                ))
+                session.execute(_insert_stmt(Activity, {
+                    "date": date_str, "user_id": user_id, "brand": brand,
+                    "activity_id": activity_id, "type": train_type,
+                    "time": time_str, "duration_min": duration_min or 30,
+                }))
         else:
-            session.execute(mysql_insert(Activity).values(
-                date=date_str, user_id=user_id, brand=brand, activity_id=activity_id,
-                type=train_type, time=time_str, duration_min=duration_min or 30,
-            ))
+            session.execute(_insert_stmt(Activity, {
+                "date": date_str, "user_id": user_id, "brand": brand,
+                "activity_id": activity_id, "type": train_type,
+                "time": time_str, "duration_min": duration_min or 30,
+            }))
 
         note = f"[{time_str}] 手动记录: {train_type} {duration_min}min {notes}".strip()
-        stmt = mysql_insert(HealthDaily).values(
-            date=date_str, user_id=user_id, brand=brand, notes=note,
+        session.execute(
+            _upsert_append(
+                HealthDaily,
+                {"date": date_str, "user_id": user_id, "brand": brand, "notes": note},
+                ["date", "user_id", "brand"],
+                "notes",
+                note,
+            )
         )
-        stmt = stmt.on_duplicate_key_update(
-            notes=func.concat(func.coalesce(HealthDaily.notes, ""), "\n", note),
-        )
-        session.execute(stmt)
         # 力量训练结构化动作详情
         for ex in exercises or []:
-            session.execute(mysql_insert(StrengthSet).values(
-                activity_id=activity_id,
-                name=ex.get("name", ""),
-                sets=ex.get("sets"),
-                reps=ex.get("reps"),
-                reps_detail=ex.get("reps_detail"),
-                weight_kg=ex.get("weight_kg"),
-                equipment=ex.get("equipment"),
-            ))
+            session.execute(_insert_stmt(StrengthSet, {
+                "activity_id": activity_id,
+                "name": ex.get("name", ""),
+                "sets": ex.get("sets"),
+                "reps": ex.get("reps"),
+                "reps_detail": ex.get("reps_detail"),
+                "weight_kg": ex.get("weight_kg"),
+                "equipment": ex.get("equipment"),
+            }))
         session.commit()
         return True
     except Exception:
@@ -1072,9 +1164,14 @@ def register_device_token(token: str, platform: str = "android") -> bool:
     session = SessionLocal()
     try:
         now = dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        stmt = mysql_insert(DeviceToken).values(token=token, platform=platform, last_seen=now)
-        stmt = stmt.on_duplicate_key_update(platform=stmt.inserted.platform, last_seen=now)
-        session.execute(stmt)
+        session.execute(
+            _upsert(
+                DeviceToken,
+                {"token": token, "platform": platform, "last_seen": now},
+                ["token"],
+                update_keys=["platform", "last_seen"],
+            )
+        )
         session.commit()
         return True
     except Exception:

@@ -1,11 +1,29 @@
-garminconnect>=0.3.6
-requests>=2.28
-httpx>=0.25
+# ── Web ──
 fastapi>=0.104
 uvicorn[standard]>=0.24
+python-multipart>=0.0.9
 pydantic>=2.0
-PyJWT>=2.8
+
+# ── 数据库 ──
 SQLAlchemy>=2.0
 pymysql>=1.1
+
+# ── 鉴权 ──
+PyJWT>=2.8
 cryptography>=41.0
-python-multipart>=0.0.9
+
+# ── 定时任务（server.py 的训练提醒调度）──
+apscheduler>=3.10
+
+# ── HTTP / 手表数据 ──
+requests>=2.28
+httpx>=0.25
+garminconnect>=0.3.6
+
+# ── 部署脚本（deploy.py 等 9 个 paramiko 脚本）──
+paramiko>=3.4
+
+# ── 可选：Firebase 推送 ──
+# 不装也能启动，push_service.py 会自动降级为「推送不可用」。
+# 要启用推送时取消注释：
+# firebase-admin>=6.6

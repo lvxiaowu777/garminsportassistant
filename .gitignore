@@ -10,8 +10,8 @@ config/.tokens/
 docs-private/
 
 # ───────────── 数据 ─────────────
-src/data/*.db
-src/data/*.db.bak
+# *.db* 一次覆盖 .db / .db.bak / .db-shm / .db-wal（SQLite WAL 模式会生成后两个）
+src/data/*.db*
 src/data/*.sqlite
 *.db-journal
 

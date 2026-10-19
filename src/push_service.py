@@ -27,8 +27,19 @@ if sys.platform == "win32":
     except Exception:
         pass
 
-import firebase_admin
-from firebase_admin import credentials, messaging
+# firebase-admin 是**可选依赖**：没有它时推送功能整体降级为不可用，
+# 但服务其余部分（账号、数据同步、AI 对话）照常工作。
+# 这样 clone 下来的人不必为了跑通主流程去装一整套 google-cloud-* 包。
+try:
+    import firebase_admin
+    from firebase_admin import credentials, messaging
+
+    _FIREBASE_AVAILABLE = True
+except ImportError:  # pragma: no cover - 取决于部署环境
+    firebase_admin = None  # type: ignore[assignment]
+    credentials = None  # type: ignore[assignment]
+    messaging = None  # type: ignore[assignment]
+    _FIREBASE_AVAILABLE = False
 
 from database import (
     register_device_token,
@@ -39,7 +50,9 @@ from database import (
 )
 
 # ── Firebase 初始化 ──
-_firebase_app: Optional[firebase_admin.App] = None
+# 注意：这里不能写 firebase_admin.App 作为注解 —— firebase-admin 缺席时
+# 模块级注解会在 import 阶段就抛 NameError。
+_firebase_app = None
 
 # 服务账号 JSON 路径（从 Firebase Console 下载）
 SERVICE_ACCOUNT_PATH = Path(__file__).resolve().parent.parent / "config" / "firebase-service-account.json"
@@ -48,6 +61,11 @@ SERVICE_ACCOUNT_PATH = Path(__file__).resolve().parent.parent / "config" / "fire
 def init_firebase() -> bool:
     """初始化 Firebase Admin SDK。返回是否成功。"""
     global _firebase_app
+
+    if not _FIREBASE_AVAILABLE:
+        print("ℹ️ 未安装 firebase-admin，推送功能已禁用（不影响其他功能）")
+        return False
+
     if _firebase_app is not None:
         return True
 
