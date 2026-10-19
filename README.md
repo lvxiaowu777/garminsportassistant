@@ -167,7 +167,8 @@ garmin-coach/
 
 阶段 1-3 已落地：对话从「把全部数据拼进 prompt 的单轮调用」改造成
 「模型自己调工具查数据」的 Agent 循环，9 个工具，接口契约完全兼容。
-详见 [`docs/INTERVIEW-GUIDE.md`](docs/INTERVIEW-GUIDE.md)（技术细节与设计取舍）。
+详见 [`docs/PROJECT-OVERVIEW.md`](docs/PROJECT-OVERVIEW.md)（整体架构、Agent 循环、
+工具层、记忆管理、提示词设计、部署）。
 
 **为什么只重构对话这条线**：其余约 38 个 CRUD 路由不需要 LLM，
 硬套 Agent 架构属于过度设计。分层只对「对话」有价值。

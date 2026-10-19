@@ -5,7 +5,6 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <meta name="theme-color" content="#0F172A">
 <title>Garmin Coach</title>
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 <style>
 /* ══════════════════════════════════════════════════════════════
    设计令牌 —— 与 Android ui/theme/Theme.kt 保持一致
@@ -376,7 +375,10 @@ async function api(path, opts = {}) {
   if (state.token) headers['Authorization'] = `Bearer ${state.token}`;
 
   const res = await fetch(API_BASE + path, { ...opts, headers });
-  if (res.status === 401) {
+  // 注意：登录/注册接口的 401 表示「账号或密码不对」，不是 token 失效。
+  // 必须把 /api/auth/ 排除掉，否则用户输错密码会看到「登录已失效」这种
+  // 毫无帮助的提示，真正的错误原因（后端 detail 里的"密码错误"）被吞掉。
+  if (res.status === 401 && !path.startsWith('/api/auth/')) {
     logout();
     throw new Error('登录已失效，请重新登录');
   }
@@ -444,7 +446,6 @@ function logout() {
   localStorage.removeItem(LS_TOKEN);
   localStorage.removeItem(LS_USER);
   state.chatMessages = [];
-  if (state.chart) { state.chart.destroy(); state.chart = null; }
   $('#appView').hidden = true;
   $('#authView').hidden = false;
   $('#authPassword').value = '';
@@ -602,7 +603,6 @@ function renderDashboard(d) {
     <div class="legend">
       <span><i style="background:var(--accent)"></i>HRV</span>
       <span><i style="background:var(--success)"></i>静息心率</span>
-      <span><i style="background:var(--warning)"></i>睡眠(h)</span>
     </div>
     <div class="chart-wrap"><canvas id="trendChart"></canvas></div>
   </div>`);
@@ -646,15 +646,21 @@ function renderDashboard(d) {
   drawTrend(charts);
 }
 
+/**
+ * 7 天趋势图 —— 用原生 Canvas 手绘，不依赖任何图表库。
+ *
+ * 之前引了 Chart.js 的 CDN，结果 jsdelivr 在国内连不上，
+ * 页面会一直卡在等脚本，趋势图也出不来。Android 端本来就是
+ * Canvas 手绘（DashboardScreen 的 ChartCard），这里保持一致，
+ * 顺便换来零外部依赖。
+ */
 function drawTrend(charts) {
   const canvas = $('#trendChart');
-  if (!canvas || typeof Chart === 'undefined') return;
-  if (state.chart) { state.chart.destroy(); state.chart = null; }
+  if (!canvas) return;
 
   const hrv = charts.hrv_trend || [];
   const rhr = charts.rhr_trend || [];
-  const sleep = charts.sleep_trend || [];
-  const base = hrv.length ? hrv : (rhr.length ? rhr : sleep);
+  const base = hrv.length ? hrv : rhr;
   const labels = base.map(p => (p.date || '').slice(5));
 
   if (!labels.length) {
@@ -662,27 +668,92 @@ function drawTrend(charts) {
     return;
   }
 
-  const mk = (arr, color) => ({
-    label: '',
-    data: labels.map(d => {
-      const hit = arr.find(p => (p.date || '').slice(5) === d);
-      return hit ? hit.value : null;
-    }),
-    borderColor: color, backgroundColor: color + '22',
-    tension: .35, borderWidth: 2, pointRadius: 2.5, pointHoverRadius: 4, spanGaps: true,
+  // 高清屏适配：按 devicePixelRatio 放大后备缓冲，再用 CSS 缩回原尺寸
+  const dpr = window.devicePixelRatio || 1;
+  const cssW = canvas.parentElement.clientWidth || 320;
+  const cssH = canvas.parentElement.clientHeight || 170;
+  canvas.width = Math.round(cssW * dpr);
+  canvas.height = Math.round(cssH * dpr);
+  canvas.style.width = cssW + 'px';
+  canvas.style.height = cssH + 'px';
+
+  const ctx = canvas.getContext('2d');
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, cssW, cssH);
+
+  const padL = 32, padR = 8, padT = 10, padB = 20;
+  const W = Math.max(10, cssW - padL - padR);
+  const H = Math.max(10, cssH - padT - padB);
+
+  const pick = (arr, i) => {
+    const hit = arr.find(p => (p.date || '').slice(5) === labels[i]);
+    return hit && hit.value != null ? hit.value : null;
+  };
+  const series = [
+    { color: '#8B5CF6', vals: labels.map((_, i) => pick(hrv, i)) },
+    { color: '#22C55E', vals: labels.map((_, i) => pick(rhr, i)) },
+  ];
+
+  const all = series.flatMap(s => s.vals).filter(v => v != null);
+  if (!all.length) {
+    canvas.parentElement.innerHTML = '<div class="empty">暂无趋势数据</div>';
+    return;
+  }
+  const min = Math.min(...all);
+  const max = Math.max(...all);
+  const span = (max - min) || 1;
+
+  const px = i => labels.length === 1 ? padL + W / 2 : padL + (i / (labels.length - 1)) * W;
+  const py = v => padT + H - ((v - min) / span) * H;
+
+  // 横向网格 + Y 轴刻度
+  ctx.font = '10px -apple-system, "Segoe UI", sans-serif';
+  ctx.textBaseline = 'middle';
+  for (let g = 0; g <= 3; g++) {
+    const gy = padT + (H / 3) * g;
+    ctx.strokeStyle = 'rgba(51,65,85,0.5)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(padL, gy);
+    ctx.lineTo(padL + W, gy);
+    ctx.stroke();
+    ctx.fillStyle = '#94A3B8';
+    ctx.textAlign = 'right';
+    ctx.fillText(String(Math.round(max - (span / 3) * g)), padL - 5, gy);
+  }
+
+  // X 轴日期（最多 5 个，避免挤在一起）
+  ctx.textAlign = 'center';
+  ctx.fillStyle = '#94A3B8';
+  const step = Math.max(1, Math.ceil(labels.length / 5));
+  labels.forEach((d, i) => {
+    if (i % step !== 0 && i !== labels.length - 1) return;
+    ctx.fillText(d, px(i), cssH - 8);
   });
 
-  state.chart = new Chart(canvas.getContext('2d'), {
-    type: 'line',
-    data: { labels, datasets: [mk(hrv,'#8B5CF6'), mk(rhr,'#22C55E'), mk(sleep,'#B45309')] },
-    options: {
-      responsive: true, maintainAspectRatio: false, animation: { duration: 400 },
-      plugins: { legend: { display: false }, tooltip: { intersect: false, mode: 'index' } },
-      scales: {
-        x: { grid: { color: 'rgba(51,65,85,.35)' }, ticks: { color: '#94A3B8', font: { size: 10 } } },
-        y: { grid: { color: 'rgba(51,65,85,.35)' }, ticks: { color: '#94A3B8', font: { size: 10 } } },
-      },
-    },
+  // 折线与数据点（遇到 null 就断开，不连到下一个有效点）
+  series.forEach(s => {
+    ctx.strokeStyle = s.color;
+    ctx.lineWidth = 2;
+    ctx.lineJoin = 'round';
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    let drawing = false;
+    s.vals.forEach((v, i) => {
+      if (v == null) { drawing = false; return; }
+      const x = px(i), y = py(v);
+      if (!drawing) { ctx.moveTo(x, y); drawing = true; }
+      else ctx.lineTo(x, y);
+    });
+    ctx.stroke();
+
+    ctx.fillStyle = s.color;
+    s.vals.forEach((v, i) => {
+      if (v == null) return;
+      ctx.beginPath();
+      ctx.arc(px(i), py(v), 2.2, 0, Math.PI * 2);
+      ctx.fill();
+    });
   });
 }
 
