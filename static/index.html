@@ -2,1123 +2,965 @@
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
-<meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="theme-color" content="#0f172a">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="theme-color" content="#0F172A">
 <title>Garmin Coach</title>
-<link rel="manifest" href="/static/manifest.json">
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 <style>
-  :root {
-    --bg: #0f172a;
-    --bg-card: #1e293b;
-    --bg-input: #334155;
-    --text: #e2e8f0;
-    --text-muted: #94a3b8;
-    --accent: #3b82f6;
-    --accent-dim: #2563eb;
-    --danger: #ef4444;
-    --warn: #f59e0b;
-    --success: #22c55e;
-    --border: #334155;
-    --radius: 12px;
-    --radius-sm: 8px;
-    --shadow: 0 4px 24px rgba(0,0,0,0.3);
-  }
-  * { margin:0; padding:0; box-sizing:border-box; }
-  body {
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
-    background: var(--bg);
-    color: var(--text);
-    min-height: 100vh;
-    min-height: 100dvh;
-    overflow-x: hidden;
-    -webkit-tap-highlight-color: transparent;
-  }
+/* ══════════════════════════════════════════════════════════════
+   设计令牌 —— 与 Android ui/theme/Theme.kt 保持一致
+   ══════════════════════════════════════════════════════════════ */
+:root{
+  --bg:#0F172A;
+  --card:#1E293B;
+  --input:#334155;
+  --accent:#8B5CF6;
+  --accent-dim:#6D28D9;
+  --success:#22C55E;
+  --warning:#B45309;
+  --danger:#EF4444;
+  --text:#E2E8F0;
+  --muted:#94A3B8;
+  --border:#334155;
+  --radius:12px;
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;padding:0}
+body{
+  background:var(--bg);color:var(--text);
+  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
+  font-size:15px;line-height:1.5;
+  min-height:100vh;
+  padding-bottom:env(safe-area-inset-bottom);
+}
+button{font-family:inherit;cursor:pointer;border:none;background:none;color:inherit}
+input,textarea{font-family:inherit;font-size:15px}
+[hidden]{display:none!important}
 
-  /* ── Header ── */
-  header {
-    position: sticky; top:0; z-index:100;
-    background: var(--bg);
-    border-bottom: 1px solid var(--border);
-    padding: 12px 16px;
-    display: flex; align-items: center; justify-content: space-between;
-  }
-  header h1 { font-size: 18px; font-weight: 700; display: flex; align-items: center; gap: 8px; }
-  header h1 .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--success); }
-  header .time { font-size: 12px; color: var(--text-muted); }
+/* ═══════════ 登录页 ═══════════ */
+#authView{
+  min-height:100vh;display:flex;align-items:center;justify-content:center;
+  padding:24px;background:radial-gradient(ellipse at top,#1E293B 0%,#0F172A 60%);
+}
+.auth-box{width:100%;max-width:380px}
+.auth-logo{font-size:44px;text-align:center;margin-bottom:8px}
+.auth-title{font-size:22px;font-weight:700;text-align:center;margin:0 0 6px}
+.auth-sub{font-size:13px;color:var(--muted);text-align:center;margin:0 0 28px}
+.field{margin-bottom:14px}
+.field label{display:block;font-size:12px;color:var(--muted);margin-bottom:6px;letter-spacing:.3px}
+.field input{
+  width:100%;padding:13px 14px;border-radius:10px;
+  background:var(--input);border:1px solid transparent;color:var(--text);
+  outline:none;transition:border-color .15s;
+}
+.field input:focus{border-color:var(--accent)}
+.field input::placeholder{color:#64748B}
+.btn-primary{
+  width:100%;padding:14px;border-radius:10px;
+  background:var(--accent);color:#fff;font-weight:600;font-size:15px;
+  transition:background .15s,transform .1s;
+}
+.btn-primary:hover{background:var(--accent-dim)}
+.btn-primary:active{transform:scale(.99)}
+.btn-primary:disabled{opacity:.55;cursor:not-allowed}
+.auth-switch{text-align:center;margin-top:18px;font-size:13px;color:var(--muted)}
+.auth-switch a{color:var(--accent);text-decoration:none;cursor:pointer}
+.auth-err{
+  margin-top:14px;padding:10px 12px;border-radius:8px;font-size:13px;
+  background:rgba(239,68,68,.12);color:#FCA5A5;border:1px solid rgba(239,68,68,.3);
+}
 
-  /* ── Tabs ── */
-  nav.tabs {
-    display: flex; gap: 4px; padding: 8px 16px;
-    background: var(--bg); border-bottom: 1px solid var(--border);
-    position: sticky; top: 52px; z-index: 99;
-  }
-  nav.tabs button {
-    flex:1; padding: 8px 0; border: none; background: transparent;
-    color: var(--text-muted); font-size: 14px; font-weight: 500;
-    cursor: pointer; border-radius: var(--radius-sm); transition: all .2s;
-  }
-  nav.tabs button.active { background: var(--accent); color: #fff; }
-  nav.tabs button:hover:not(.active) { background: var(--bg-card); }
+/* ═══════════ 顶部栏 ═══════════ */
+.topbar{
+  position:sticky;top:0;z-index:20;
+  display:flex;align-items:center;justify-content:space-between;
+  padding:14px 18px;
+  background:rgba(15,23,42,.85);backdrop-filter:blur(12px);
+  border-bottom:1px solid rgba(51,65,85,.6);
+}
+.topbar-left{display:flex;flex-direction:column;gap:2px}
+.topbar-title{font-size:17px;font-weight:700;letter-spacing:.2px}
+.topbar-meta{font-size:11px;color:var(--muted)}
+.icon-btn{
+  width:36px;height:36px;border-radius:10px;display:flex;align-items:center;justify-content:center;
+  font-size:17px;background:var(--card);border:1px solid rgba(51,65,85,.7);
+  transition:background .15s;
+}
+.icon-btn:hover{background:var(--input)}
 
-  /* ── Main ── */
-  main { padding: 16px; max-width: 800px; margin: 0 auto; }
-  .tab-content { display: none; }
-  .tab-content.active { display: block; }
+/* ═══════════ 主容器 ═══════════ */
+#main{max-width:720px;margin:0 auto;padding:16px 14px 96px}
+.tab-pane{display:none;flex-direction:column;gap:12px}
+.tab-pane.active{display:flex}
 
-  /* ── Cards ── */
-  .card {
-    background: var(--bg-card); border-radius: var(--radius);
-    padding: 16px; margin-bottom: 12px;
-    border: 1px solid var(--border); box-shadow: var(--shadow);
-  }
-  .card h3 { font-size: 13px; color: var(--text-muted); text-transform: uppercase; letter-spacing: .5px; margin-bottom: 8px; }
-  .card-row { display: flex; gap: 12px; flex-wrap: wrap; }
-  .card-row > .card { flex: 1; min-width: 140px; }
+/* ═══════════ 卡片 ═══════════ */
+.card{
+  background:var(--card);border-radius:var(--radius);
+  padding:16px;border:1px solid rgba(51,65,85,.55);
+}
+.card-label{
+  font-size:12px;color:var(--muted);letter-spacing:.5px;margin-bottom:10px;
+  display:flex;align-items:center;gap:6px;
+}
+.big{font-size:28px;font-weight:700;color:var(--text);line-height:1.15}
+.unit{font-size:13px;color:var(--muted);margin-left:3px}
+.row2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.stat-line{display:flex;justify-content:space-between;align-items:baseline;padding:5px 0;font-size:13px}
+.stat-line span:first-child{color:var(--muted)}
+.stat-line span:last-child{font-weight:600}
+.muted{color:var(--muted)}
+.empty{padding:26px 12px;text-align:center;font-size:13px;color:var(--muted)}
 
-  /* ── Stat ── */
-  .stat { display: flex; flex-direction: column; }
-  .stat .value { font-size: 28px; font-weight: 700; }
-  .stat .label { font-size: 12px; color: var(--text-muted); }
-  .stat .sub { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
-  .stat .value.good { color: var(--success); }
-  .stat .value.warn { color: var(--warn); }
-  .stat .value.danger { color: var(--danger); }
+/* 安全档位 */
+.tier{border-radius:var(--radius);padding:16px;border:1px solid transparent}
+.tier-REST    {background:#7F1D1D;color:#FCA5A5}
+.tier-EASY    {background:#78350F;color:#FCD34D}
+.tier-MODERATE{background:#1E3A5F;color:#93C5FD}
+.tier-HARD    {background:#14532D;color:#86EFAC}
+.tier-LONG    {background:#4C1D95;color:#C4B5FD}
+.tier-name{font-size:24px;font-weight:800;letter-spacing:.5px}
+.tier-desc{font-size:13px;opacity:.85;margin-top:2px}
+.tier-list{margin:10px 0 0;padding-left:0;list-style:none;font-size:12.5px;line-height:1.7}
+.tier-list li::before{content:"·";margin-right:6px;opacity:.6}
 
-  /* ── Safety Badge ── */
-  .safety-badge {
-    display: inline-block; padding: 4px 12px; border-radius: 20px;
-    font-size: 13px; font-weight: 700;
-  }
-  .safety-REST { background: #7f1d1d; color: #fca5a5; }
-  .safety-EASY { background: #78350f; color: #fcd34d; }
-  .safety-MODERATE { background: #1e3a5f; color: #93c5fd; }
-  .safety-HARD { background: #14532d; color: #86efac; }
-  .safety-LONG { background: #4c1d95; color: #c4b5fd; }
+/* 天气 */
+.weather-top{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}
+.weather-temp{font-size:34px;font-weight:700;line-height:1}
+.weather-desc{font-size:13px;color:var(--muted);margin-top:4px}
+.weather-grid{display:flex;gap:16px;margin-top:14px;flex-wrap:wrap;font-size:12.5px;color:var(--muted)}
+.weather-grid b{color:var(--text);font-weight:600}
 
-  /* ── Chart Container ── */
-  .chart-wrap { position: relative; height: 200px; margin: 8px 0; }
-  .chart-wrap canvas { width: 100% !important; }
+/* 趋势图 */
+.chart-wrap{position:relative;height:170px;margin-top:4px}
+.legend{display:flex;gap:14px;font-size:11px;color:var(--muted);margin-bottom:6px}
+.legend i{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:4px}
 
-  /* ── Chat ── */
-  #chat-messages {
-    display: flex; flex-direction: column; gap: 8px;
-    max-height: calc(100vh - 220px); overflow-y: auto;
-    padding: 4px 0; margin-bottom: 12px;
-  }
-  .msg {
-    padding: 10px 14px; border-radius: var(--radius-sm); max-width: 88%;
-    font-size: 14px; line-height: 1.5; word-break: break-word;
-  }
-  .msg.user { align-self: flex-end; background: var(--accent); color: #fff; }
-  .msg.assistant { align-self: flex-start; background: var(--bg-card); border: 1px solid var(--border); }
-  .msg.assistant.streaming { border-color: var(--accent); }
-  .msg .time { font-size: 10px; opacity: .6; margin-top: 4px; }
-  .msg .safety-context {
-    font-size: 11px; padding: 4px 8px; margin-bottom: 6px;
-    background: rgba(0,0,0,.3); border-radius: 4px;
-  }
+/* ═══════════ 对话 ═══════════ */
+.chat-day{text-align:center;font-size:12px;color:var(--muted);margin:6px 0}
+.msg{display:flex;margin-bottom:12px;gap:8px;align-items:flex-end}
+.msg.user{justify-content:flex-end}
+.bubble{
+  max-width:82%;padding:11px 14px;border-radius:14px;font-size:14.5px;
+  white-space:pre-wrap;word-break:break-word;
+}
+.msg.assistant .bubble{
+  background:var(--card);border:1px solid rgba(51,65,85,.6);
+  border-bottom-left-radius:4px;
+}
+.msg.user .bubble{
+  background:var(--accent-dim);color:#fff;border-bottom-right-radius:4px;
+}
+.msg-avatar{
+  width:30px;height:30px;border-radius:50%;flex-shrink:0;
+  display:flex;align-items:center;justify-content:center;font-size:15px;
+  background:var(--card);border:1px solid rgba(51,65,85,.6);
+}
+.typing{display:flex;gap:4px;padding:14px}
+.typing i{width:6px;height:6px;border-radius:50%;background:var(--muted);animation:blink 1.2s infinite}
+.typing i:nth-child(2){animation-delay:.2s}
+.typing i:nth-child(3){animation-delay:.4s}
+@keyframes blink{0%,60%,100%{opacity:.25}30%{opacity:1}}
+.quick-row{display:flex;gap:8px;overflow-x:auto;padding:2px 0 10px;scrollbar-width:none}
+.quick-row::-webkit-scrollbar{display:none}
+.quick{
+  flex-shrink:0;padding:8px 14px;border-radius:999px;font-size:13px;
+  background:var(--card);border:1px solid rgba(51,65,85,.7);color:var(--text);
+  transition:border-color .15s,background .15s;
+}
+.quick:hover{border-color:var(--accent);background:var(--input)}
+.chat-input-bar{
+  position:sticky;bottom:64px;background:var(--bg);
+  padding:8px 0 4px;display:flex;gap:8px;align-items:flex-end;
+}
+.chat-input-bar textarea{
+  flex:1;resize:none;max-height:120px;padding:12px 14px;border-radius:12px;
+  background:var(--input);border:1px solid transparent;color:var(--text);
+  outline:none;line-height:1.45;
+}
+.chat-input-bar textarea:focus{border-color:var(--accent)}
+.send-btn{
+  width:44px;height:44px;border-radius:12px;background:var(--accent);
+  color:#fff;font-size:17px;display:flex;align-items:center;justify-content:center;
+  flex-shrink:0;transition:background .15s;
+}
+.send-btn:hover{background:var(--accent-dim)}
+.send-btn:disabled{opacity:.5;cursor:not-allowed}
 
-  .chat-input-wrap {
-    display: flex; gap: 8px; background: var(--bg-card);
-    padding: 8px; border-radius: var(--radius); border: 1px solid var(--border);
-    position: sticky; bottom: 16px;
-  }
-  .chat-input-wrap input {
-    flex:1; background: var(--bg-input); border: none; color: var(--text);
-    padding: 10px 14px; border-radius: var(--radius-sm); font-size: 14px;
-    outline: none;
-  }
-  .chat-input-wrap input::placeholder { color: var(--text-muted); }
-  .chat-input-wrap button {
-    background: var(--accent); color: #fff; border: none;
-    padding: 10px 16px; border-radius: var(--radius-sm); font-size: 14px;
-    font-weight: 600; cursor: pointer; transition: background .2s;
-    white-space: nowrap;
-  }
-  .chat-input-wrap button:disabled { background: var(--bg-input); color: var(--text-muted); cursor: not-allowed; }
-  .chat-input-wrap button:hover:not(:disabled) { background: var(--accent-dim); }
+/* ═══════════ 训练记录 ═══════════ */
+.act{display:flex;align-items:center;gap:14px;cursor:pointer;transition:border-color .15s,transform .1s}
+.act:hover{border-color:rgba(139,92,246,.5)}
+.act:active{transform:scale(.995)}
+.act-icon{
+  width:44px;height:44px;border-radius:12px;flex-shrink:0;
+  display:flex;align-items:center;justify-content:center;font-size:20px;background:var(--input);
+}
+.act-body{flex:1;min-width:0}
+.act-title{font-size:14.5px;font-weight:600;margin-bottom:3px}
+.act-meta{font-size:12.5px;color:var(--muted);display:flex;gap:10px;flex-wrap:wrap}
+.act-arrow{color:var(--muted);font-size:16px;flex-shrink:0}
 
-  .quick-actions { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 8px; }
-  .quick-btn {
-    background: var(--bg-card); color: var(--text-muted); border: 1px solid var(--border);
-    padding: 5px 12px; border-radius: 16px; font-size: 12px; cursor: pointer;
-    transition: all .2s;
-  }
-  .quick-btn:hover { background: var(--accent); color: #fff; border-color: var(--accent); }
+/* 弹窗 */
+.modal{
+  position:fixed;inset:0;z-index:60;display:flex;align-items:flex-end;justify-content:center;
+  background:rgba(2,6,23,.72);backdrop-filter:blur(4px);padding:0;
+}
+@media(min-width:640px){.modal{align-items:center;padding:24px}}
+.modal-box{
+  width:100%;max-width:520px;max-height:86vh;overflow:auto;
+  background:var(--card);border-radius:18px 18px 0 0;
+  border:1px solid rgba(51,65,85,.7);
+  padding:20px 18px calc(20px + env(safe-area-inset-bottom));
+}
+@media(min-width:640px){.modal-box{border-radius:16px}}
+.modal-head{display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:16px;gap:12px}
+.modal-title{font-size:17px;font-weight:700}
+.modal-close{font-size:20px;color:var(--muted);line-height:1;padding:2px 6px}
+.section-title{font-size:13px;font-weight:700;margin:18px 0 8px;color:var(--text)}
+.split-list{display:flex;flex-wrap:wrap;gap:6px}
+.split{
+  font-size:12px;padding:5px 9px;border-radius:7px;
+  background:var(--input);color:var(--text);font-variant-numeric:tabular-nums;
+}
 
-  /* ── History List ── */
-  .activity-item {
-    padding: 12px; border-bottom: 1px solid var(--border);
-    display: flex; justify-content: space-between; align-items: center;
-    cursor: pointer; transition: background .2s;
-  }
-  .activity-item:hover { background: var(--bg-card); }
-  .activity-item .act-icon { font-size: 24px; margin-right: 12px; }
-  .activity-item .act-info { flex:1; }
-  .activity-item .act-info .act-title { font-size: 14px; font-weight: 600; }
-  .activity-item .act-info .act-detail { font-size: 12px; color: var(--text-muted); }
+/* ═══════════ 底部导航 ═══════════ */
+.tabbar{
+  position:fixed;left:0;right:0;bottom:0;z-index:30;
+  display:flex;background:rgba(30,41,59,.94);backdrop-filter:blur(14px);
+  border-top:1px solid rgba(51,65,85,.7);
+  padding-bottom:env(safe-area-inset-bottom);
+}
+.tabbar button{
+  flex:1;padding:10px 0 11px;display:flex;flex-direction:column;align-items:center;gap:3px;
+  font-size:11px;color:var(--muted);transition:color .15s;
+}
+.tabbar button .ico{font-size:19px;line-height:1}
+.tabbar button.active{color:var(--accent)}
 
-  /* ── Loading ── */
-  .loading {
-    display: flex; align-items: center; justify-content: center;
-    padding: 40px; color: var(--text-muted);
-  }
-  .spinner {
-    width: 24px; height: 24px; border: 3px solid var(--border);
-    border-top-color: var(--accent); border-radius: 50%;
-    animation: spin .6s linear infinite; margin-right: 8px;
-  }
-  @keyframes spin { to { transform: rotate(360deg); } }
+/* 骨架屏 */
+.skeleton{
+  background:linear-gradient(90deg,#1E293B 25%,#273449 37%,#1E293B 63%);
+  background-size:400% 100%;animation:shimmer 1.4s infinite;border-radius:8px;
+}
+@keyframes shimmer{0%{background-position:100% 0}100%{background-position:-100% 0}}
 
-  /* ── Header right-side buttons ── */
-  .header-actions { display: flex; gap: 8px; align-items: center; }
-  .header-btn {
-    background: var(--bg-card); color: var(--text);
-    border: 1px solid var(--border);
-    padding: 6px 12px; border-radius: var(--radius-sm);
-    font-size: 13px; cursor: pointer; transition: all .2s;
-    white-space: nowrap;
-  }
-  .header-btn:hover { background: var(--bg-input); border-color: var(--accent); }
-  .header-btn.danger:hover { background: var(--danger); border-color: var(--danger); color: #fff; }
-
-  /* ── Account overlay (full-screen on top of tabs) ── */
-  .overlay {
-    position: fixed; inset: 0; z-index: 200;
-    background: var(--bg);
-    display: flex; flex-direction: column;
-    overflow-y: auto;
-  }
-  .overlay.hidden { display: none; }
-  .overlay-header {
-    position: sticky; top: 0; z-index: 10;
-    background: var(--bg); border-bottom: 1px solid var(--border);
-    padding: 12px 16px; display: flex; align-items: center; gap: 12px;
-  }
-  .overlay-header h2 { font-size: 18px; font-weight: 700; }
-  .back-btn {
-    background: transparent; border: 1px solid var(--border);
-    color: var(--text); padding: 6px 12px; border-radius: var(--radius-sm);
-    font-size: 14px; cursor: pointer;
-  }
-  .back-btn:hover { background: var(--bg-card); }
-  .overlay-body { padding: 16px; max-width: 800px; margin: 0 auto; width: 100%; }
-
-  /* ── Account page sections ── */
-  .account-section { margin-bottom: 24px; }
-  .account-section-title {
-    font-size: 13px; color: var(--text-muted);
-    text-transform: uppercase; letter-spacing: .5px;
-    margin-bottom: 8px;
-  }
-  .account-info-row {
-    display: flex; justify-content: space-between; align-items: center;
-    padding: 12px 0; border-bottom: 1px solid var(--border);
-  }
-  .account-info-row:last-child { border-bottom: none; }
-  .account-info-row .label { font-size: 13px; color: var(--text-muted); }
-  .account-info-row .value { font-size: 14px; font-weight: 500; }
-
-  /* ── Device list ── */
-  .device-list { margin-bottom: 12px; }
-  .device-row {
-    display: flex; align-items: center; justify-content: space-between;
-    padding: 10px 12px; background: var(--bg-card);
-    border: 1px solid var(--border); border-radius: var(--radius-sm);
-    margin-bottom: 8px;
-  }
-  .device-row .dev-info { flex: 1; }
-  .device-row .dev-brand { font-size: 14px; font-weight: 600; }
-  .device-row .dev-account { font-size: 12px; color: var(--text-muted); }
-  .device-row .dev-actions { display: flex; gap: 6px; }
-  .device-row .dev-actions button {
-    background: transparent; border: 1px solid var(--border);
-    color: var(--text); padding: 4px 10px; border-radius: var(--radius-sm);
-    font-size: 12px; cursor: pointer;
-  }
-  .device-row .dev-actions button:hover { background: var(--bg-input); }
-  .device-row .dev-actions .danger:hover { background: var(--danger); border-color: var(--danger); color: #fff; }
-
-  /* ── Bind form ── */
-  .bind-form { display: flex; flex-direction: column; gap: 8px; }
-  .bind-form label { font-size: 12px; color: var(--text-muted); }
-  .bind-form input, .bind-form select {
-    background: var(--bg-input); border: 1px solid var(--border);
-    color: var(--text); padding: 10px 12px; border-radius: var(--radius-sm);
-    font-size: 14px; outline: none;
-  }
-  .bind-form input:focus, .bind-form select:focus { border-color: var(--accent); }
-  .bind-form button {
-    background: var(--accent); color: #fff; border: none;
-    padding: 10px 16px; border-radius: var(--radius-sm);
-    font-size: 14px; font-weight: 600; cursor: pointer;
-    margin-top: 4px;
-  }
-  .bind-form button:hover { background: var(--accent-dim); }
-  .bind-form button:disabled { background: var(--bg-input); color: var(--text-muted); cursor: not-allowed; }
-  .bind-form .mfa-hint {
-    font-size: 12px; color: var(--warn);
-    background: rgba(245,158,11,.1); border: 1px solid var(--warn);
-    padding: 8px 12px; border-radius: var(--radius-sm); margin-top: 4px;
-  }
-  .bind-form .msg { margin-top: 8px; }
-
-  /* ── Logout button (full-width danger) ── */
-  .logout-btn {
-    width: 100%; background: transparent; color: var(--danger);
-    border: 1px solid var(--danger); padding: 12px;
-    border-radius: var(--radius); font-size: 14px; font-weight: 600;
-    cursor: pointer;
-  }
-  .logout-btn:hover { background: var(--danger); color: #fff; }
-
-  /* ── Responsive ── */
-  @media (max-width: 480px) {
-    .card-row { flex-direction: column; }
-    .stat .value { font-size: 24px; }
-    header h1 { font-size: 16px; }
-    .msg { max-width: 92%; }
-    .header-btn { padding: 5px 8px; font-size: 12px; }
-  }
+/* toast */
+#toast{
+  position:fixed;left:50%;bottom:88px;transform:translateX(-50%) translateY(12px);
+  background:var(--input);color:var(--text);padding:10px 18px;border-radius:10px;
+  font-size:13px;opacity:0;pointer-events:none;transition:opacity .2s,transform .2s;z-index:80;
+  border:1px solid rgba(51,65,85,.8);max-width:88vw;text-align:center;
+}
+#toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
 </style>
 </head>
 <body>
 
-<header>
-  <h1><span class="dot" id="status-dot"></span> Garmin Coach <span class="time" id="header-time" style="margin-left:8px;font-size:12px;color:var(--text-muted)"></span></h1>
-  <div class="header-actions">
-    <button id="btn-sync" class="header-btn">🔄 同步</button>
-    <button id="btn-account" class="header-btn">⚙️ 查看账号</button>
-  </div>
-</header>
-
-<nav class="tabs">
-  <button class="active" data-tab="dashboard">📊 仪表盘</button>
-  <button data-tab="chat">💬 对话</button>
-  <button data-tab="history">📋 记录</button>
-</nav>
-
-<main>
-  <!-- ═══ 仪表盘 ═══ -->
-  <div class="tab-content active" id="tab-dashboard">
-    <div class="card" id="safety-card">
-      <h3>🛡️ 安全档位</h3>
-      <div id="safety-content"><div class="loading"><div class="spinner"></div>加载中...</div></div>
-    </div>
-
-    <div class="card-row">
-      <div class="card" id="sleep-card">
-        <h3>💤 昨夜睡眠</h3>
-        <div id="sleep-content"></div>
+<!-- ═══════════ 登录 ═══════════ -->
+<div id="authView">
+  <div class="auth-box">
+    <div class="auth-logo">🏃</div>
+    <h1 class="auth-title">Garmin Coach</h1>
+    <p class="auth-sub">运动数据 + AI 教练</p>
+    <form id="authForm">
+      <div class="field">
+        <label for="authPhone">手机号</label>
+        <input id="authPhone" type="tel" inputmode="numeric" placeholder="请输入手机号" autocomplete="username" required>
       </div>
-      <div class="card" id="hrv-card">
-        <h3>🫀 HRV · 静息心率</h3>
-        <div id="hrv-content"></div>
+      <div class="field">
+        <label for="authPassword">密码</label>
+        <input id="authPassword" type="password" placeholder="请输入密码" autocomplete="current-password" required>
       </div>
+      <button class="btn-primary" id="authSubmit" type="submit">登录</button>
+    </form>
+    <div class="auth-switch">
+      <span id="authSwitchText">还没有账号？</span>
+      <a id="authSwitch">注册</a>
     </div>
-
-    <div class="card">
-      <h3>📈 7 天趋势</h3>
-      <div class="chart-wrap"><canvas id="chart-hrv"></canvas></div>
-    </div>
-
-    <div class="card">
-      <h3>🏃 本周跑量</h3>
-      <div id="week-summary"></div>
-    </div>
-
-    <div class="card">
-      <h3>🌤️ 今日天气</h3>
-      <div id="weather-content"></div>
-    </div>
-
-    <div class="card">
-      <h3>🫁 心肺 · 预测</h3>
-      <div id="fitness-content"></div>
-    </div>
-  </div>
-
-  <!-- ═══ 对话 ═══ -->
-  <div class="tab-content" id="tab-chat">
-    <div id="chat-messages">
-      <div class="msg assistant">
-        👋 我是 Jarvis，你的运动教练。问我"今晚跑不跑？""状态怎么样？"或者任何运动和身体的问题。
-      </div>
-    </div>
-    <div class="quick-actions" id="quick-actions">
-      <button class="quick-btn" data-msg="今晚跑不跑？">今晚跑不跑？</button>
-      <button class="quick-btn" data-msg="我状态怎么样？">状态怎么样？</button>
-      <button class="quick-btn" data-msg="这周跑量怎么样？">这周跑量</button>
-      <button class="quick-btn" data-msg="帮我看看最近训练趋势">训练趋势</button>
-      <button class="quick-btn" data-msg="明天怎么练？">明天怎么练？</button>
-    </div>
-    <div class="chat-input-wrap">
-      <input type="text" id="chat-input" placeholder="问 Jarvis..." autocomplete="off">
-      <button id="chat-send">发送</button>
-    </div>
-  </div>
-
-  <!-- ═══ 记录 ═══ -->
-  <div class="tab-content" id="tab-history">
-    <div class="card" id="recent-activities">
-      <h3>最近活动</h3>
-      <div id="activities-list"><div class="loading"><div class="spinner"></div>加载中...</div></div>
-    </div>
-  </div>
-</main>
-
-<!-- ═══ 登录 overlay ═══ -->
-<div id="login-overlay" class="overlay hidden">
-  <div class="overlay-header">
-    <h2>登录 Garmin Coach</h2>
-  </div>
-  <div class="overlay-body">
-    <div class="card">
-      <form class="bind-form" id="login-form" autocomplete="off">
-        <label for="login-phone">手机号</label>
-        <input type="tel" id="login-phone" placeholder="11 位手机号" autocomplete="username">
-        <label for="login-password">密码</label>
-        <input type="password" id="login-password" placeholder="密码" autocomplete="current-password">
-        <button type="submit" id="btn-login">登录</button>
-        <div class="msg" id="login-msg"></div>
-      </form>
-    </div>
+    <div class="auth-err" id="authErr" hidden></div>
   </div>
 </div>
 
-<!-- ═══ 查看账号 overlay ═══ -->
-<div id="account-overlay" class="overlay hidden">
-  <div class="overlay-header">
-    <button class="back-btn" id="btn-account-back">← 返回</button>
-    <h2>账号</h2>
-  </div>
-  <div class="overlay-body">
-
-    <!-- 当前账号 -->
-    <div class="account-section">
-      <div class="account-section-title">当前账号</div>
-      <div class="card">
-        <div class="account-info-row">
-          <span class="label">手机号</span>
-          <span class="value" id="account-phone">加载中...</span>
-        </div>
-        <div class="account-info-row">
-          <span class="label">注册时间</span>
-          <span class="value" id="account-created">—</span>
-        </div>
-      </div>
+<!-- ═══════════ 主界面 ═══════════ -->
+<div id="appView" hidden>
+  <header class="topbar">
+    <div class="topbar-left">
+      <div class="topbar-title">Garmin Coach</div>
+      <div class="topbar-meta" id="topbarMeta">加载中…</div>
     </div>
-
-    <!-- 绑定设备 -->
-    <div class="account-section">
-      <div class="account-section-title">已绑定设备</div>
-      <div id="device-list" class="device-list">
-        <div class="loading"><div class="spinner"></div>加载中...</div>
-      </div>
-
-      <div class="account-section-title" style="margin-top:16px">绑定新设备</div>
-      <div class="card">
-        <form class="bind-form" id="bind-form" autocomplete="off">
-          <label for="bind-brand">设备品牌</label>
-          <select id="bind-brand">
-            <option value="garmin">Garmin（佳明）</option>
-            <option value="coros">Coros（高驰）</option>
-            <option value="apple">Apple Watch</option>
-            <option value="huawei">华为</option>
-            <option value="xiaomi">小米</option>
-          </select>
-          <label for="bind-account">账号（邮箱/手机）</label>
-          <input type="text" id="bind-account" placeholder="登录账号" autocomplete="off">
-          <label for="bind-password">密码</label>
-          <input type="password" id="bind-password" placeholder="登录密码" autocomplete="new-password">
-          <div id="bind-mfa-area"></div>
-          <button type="submit" id="btn-bind">绑定</button>
-          <div class="msg" id="bind-msg"></div>
-        </form>
-      </div>
+    <div style="display:flex;gap:8px">
+      <button class="icon-btn" id="refreshBtn" title="刷新">⟳</button>
+      <button class="icon-btn" id="logoutBtn" title="退出">⎋</button>
     </div>
+  </header>
 
-    <!-- 退出登录 -->
-    <div class="account-section">
-      <button class="logout-btn" id="btn-logout">退出登录</button>
+  <main id="main">
+    <section class="tab-pane active" data-pane="dashboard">
+      <div id="dashContent"></div>
+    </section>
+
+    <section class="tab-pane" data-pane="chat">
+      <div id="chatList"></div>
+      <div class="quick-row" id="quickRow"></div>
+      <div class="chat-input-bar">
+        <textarea id="chatInput" rows="1" placeholder="问运动助理…"></textarea>
+        <button class="send-btn" id="sendBtn" title="发送">↑</button>
+      </div>
+    </section>
+
+    <section class="tab-pane" data-pane="history">
+      <div id="historyContent"></div>
+    </section>
+  </main>
+
+  <nav class="tabbar">
+    <button data-tab="dashboard" class="active"><span class="ico">📊</span>仪表盘</button>
+    <button data-tab="chat"><span class="ico">💬</span>对话</button>
+    <button data-tab="history"><span class="ico">📋</span>记录</button>
+  </nav>
+</div>
+
+<!-- 弹窗 -->
+<div class="modal" id="modal" hidden>
+  <div class="modal-box">
+    <div class="modal-head">
+      <div class="modal-title" id="modalTitle"></div>
+      <button class="modal-close" id="modalClose">✕</button>
     </div>
-
+    <div id="modalBody"></div>
   </div>
 </div>
+
+<div id="toast"></div>
 
 <script>
-// ═══════════════════════════════════════════════
-// App State
-// ═══════════════════════════════════════════════
-const API = '';
-const TOKEN_KEY = 'garmin_token';
-const USER_KEY = 'garmin_user_id';
+/* ══════════════════════════════════════════════════════════════
+   1. 基础设施
+   ══════════════════════════════════════════════════════════════ */
+const API_BASE = '';
+const LS_TOKEN = 'gc_token';
+const LS_USER = 'gc_user_id';
 
-function getToken() { return localStorage.getItem(TOKEN_KEY); }
-function setToken(t, uid) {
-  localStorage.setItem(TOKEN_KEY, t);
-  if (uid) localStorage.setItem(USER_KEY, uid);
-}
-function clearAuth() {
-  localStorage.removeItem(TOKEN_KEY);
-  localStorage.removeItem(USER_KEY);
+const state = {
+  token: localStorage.getItem(LS_TOKEN) || '',
+  userId: Number(localStorage.getItem(LS_USER) || 0),
+  isRegister: false,
+  chatBusy: false,
+  chatMessages: [],
+  chart: null,
+};
+
+const $ = (sel, root = document) => root.querySelector(sel);
+const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
+
+function toast(msg, ms = 2000) {
+  const el = $('#toast');
+  el.textContent = msg;
+  el.classList.add('show');
+  clearTimeout(el._t);
+  el._t = setTimeout(() => el.classList.remove('show'), ms);
 }
 
-// fetch 包装：自动带 Authorization，401 时弹登录
-async function fetchAuth(url, opts = {}) {
-  const token = getToken();
+function esc(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+/** 统一请求：自动带 token，401 时回登录页 */
+async function api(path, opts = {}) {
   const headers = { ...(opts.headers || {}) };
-  if (token) headers['Authorization'] = 'Bearer ' + token;
-  if (opts.body && typeof opts.body === 'object' && !(opts.body instanceof FormData)) {
+  if (opts.body && typeof opts.body !== 'string') {
     headers['Content-Type'] = 'application/json';
-    opts = { ...opts, body: JSON.stringify(opts.body) };
+    opts.body = JSON.stringify(opts.body);
   }
-  const res = await fetch(API + url, { ...opts, headers });
-  if (res.status === 401 && !url.includes('/api/auth/login')) {
-    showLoginOverlay();
-    throw new Error('未登录');
+  if (state.token) headers['Authorization'] = `Bearer ${state.token}`;
+
+  const res = await fetch(API_BASE + path, { ...opts, headers });
+  if (res.status === 401) {
+    logout();
+    throw new Error('登录已失效，请重新登录');
   }
-  return res;
+  const text = await res.text();
+  let data = null;
+  try { data = text ? JSON.parse(text) : null; } catch { data = text; }
+  if (!res.ok) {
+    const detail = (data && data.detail) || (typeof data === 'string' ? data : '') || `请求失败 (${res.status})`;
+    throw new Error(detail);
+  }
+  return data;
 }
 
-let currentTab = 'dashboard';
-let ws = null;
-let isStreaming = false;
-let dashboardData = null;
+/* ══════════════════════════════════════════════════════════════
+   2. 登录 / 退出
+   ══════════════════════════════════════════════════════════════ */
+function showAuthError(msg) {
+  const box = $('#authErr');
+  box.textContent = msg;
+  box.hidden = false;
+}
 
-// ═══════════════════════════════════════════════
-// Tabs
-// ═══════════════════════════════════════════════
-document.querySelectorAll('nav.tabs button').forEach(btn => {
-  btn.addEventListener('click', () => {
-    document.querySelectorAll('nav.tabs button').forEach(b => b.classList.remove('active'));
-    document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
-    btn.classList.add('active');
-    currentTab = btn.dataset.tab;
-    document.getElementById('tab-' + currentTab).classList.add('active');
-    if (currentTab === 'dashboard') refreshDashboard();
-    if (currentTab === 'history') refreshHistory();
-  });
-});
+function switchAuthMode() {
+  state.isRegister = !state.isRegister;
+  $('#authSubmit').textContent = state.isRegister ? '注册' : '登录';
+  $('#authSwitchText').textContent = state.isRegister ? '已有账号？' : '还没有账号？';
+  $('#authSwitch').textContent = state.isRegister ? '登录' : '注册';
+  $('#authErr').hidden = true;
+  $('#authPassword').setAttribute('autocomplete', state.isRegister ? 'new-password' : 'current-password');
+}
 
-// ═══════════════════════════════════════════════
-// Dashboard
-// ═══════════════════════════════════════════════
-async function refreshDashboard() {
+$('#authSwitch').addEventListener('click', switchAuthMode);
+
+$('#authForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const phone = $('#authPhone').value.trim();
+  const password = $('#authPassword').value;
+  const btn = $('#authSubmit');
+  $('#authErr').hidden = true;
+
+  if (!phone || !password) return showAuthError('请填写手机号和密码');
+  btn.disabled = true;
+  btn.textContent = state.isRegister ? '注册中…' : '登录中…';
+
   try {
-    const res = await fetchAuth('/api/health/dashboard');
-    dashboardData = await res.json();
-
-    document.getElementById('header-time').textContent =
-      dashboardData.datetime + ' · ' + dashboardData.period;
-    document.getElementById('status-dot').style.background =
-      dashboardData.safety?.max_tier === 'REST' ? 'var(--danger)' :
-      dashboardData.safety?.max_tier === 'EASY' ? 'var(--warn)' : 'var(--success)';
-
-    renderSafety(dashboardData.safety);
-    renderSleep(dashboardData.today);
-    renderHRV(dashboardData.today);
-    renderChart(dashboardData.charts);
-    renderWeekSummary(dashboardData);
-    renderWeather(dashboardData.today);
-    renderFitness(dashboardData.today);
-  } catch (e) {
-    console.error('Dashboard load error:', e);
+    const path = state.isRegister ? '/api/auth/register' : '/api/auth/login';
+    const data = await api(path, { method: 'POST', body: { phone, password } });
+    if (!data || !data.token) throw new Error('服务端未返回 token');
+    state.token = data.token;
+    state.userId = data.user_id;
+    localStorage.setItem(LS_TOKEN, data.token);
+    localStorage.setItem(LS_USER, String(data.user_id));
+    enterApp();
+  } catch (err) {
+    showAuthError(err.message || '操作失败');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = state.isRegister ? '注册' : '登录';
   }
-}
-
-function renderSafety(safety) {
-  if (!safety) return;
-  const tier = safety.max_tier || '?';
-  const desc = safety.tier_description || '';
-  let html = `<span class="safety-badge safety-${tier}">${tier}</span> <span style="margin-left:8px;font-size:14px">${desc}</span>`;
-  if (safety.blockers?.length) {
-    html += '<div style="margin-top:8px;font-size:13px;color:var(--warn)">';
-    safety.blockers.forEach(b => html += `<div>⚠️ ${b}</div>`);
-    html += '</div>';
-  }
-  if (safety.notes?.length) {
-    html += '<div style="margin-top:6px;font-size:12px;color:var(--text-muted)">';
-    safety.notes.forEach(n => html += `<div>💡 ${n}</div>`);
-    html += '</div>';
-  }
-  document.getElementById('safety-content').innerHTML = html;
-}
-
-function renderSleep(today) {
-  if (!today) return;
-  const hours = today.sleep_hours || '?';
-  const score = today.sleep_score || '?';
-  const deep = today.sleep_deep_min || '?';
-  const html = `
-    <div class="stat">
-      <div class="value">${hours}<span style="font-size:16px">h</span></div>
-      <div class="label">睡眠时长</div>
-      <div class="sub">得分 ${score} · 深睡 ${deep}min</div>
-    </div>`;
-  document.getElementById('sleep-content').innerHTML = html;
-}
-
-function renderHRV(today) {
-  if (!today) return;
-  const hrv = today.hrv || '?';
-  const status = today.hrv_status || '';
-  let cls = 'value';
-  if (status === 'POOR' || status === 'LOW') cls = 'value danger';
-  else if (status === 'UNBALANCED') cls = 'value warn';
-
-  const html = `
-    <div class="stat">
-      <div class="${cls}">${hrv} <span style="font-size:14px">${status}</span></div>
-      <div class="label">HRV</div>
-      <div class="sub">静息心率 ${today.resting_hr || '?'} · BB ${today.body_battery_high || '?'}</div>
-    </div>`;
-  document.getElementById('hrv-content').innerHTML = html;
-}
-
-function renderWeather(today) {
-  if (!today) return;
-  const w = {};
-  if (today.weather_desc) w.desc = today.weather_desc;
-  if (today.weather_high) w.high = today.weather_high;
-  if (today.weather_low) w.low = today.weather_low;
-  if (today.weather_humidity) w.humidity = today.weather_humidity;
-  if (today.weather_aqi) w.aqi = today.weather_aqi;
-  if (!w.desc) { document.getElementById('weather-content').innerHTML = '<span style="color:var(--text-muted)">暂无天气数据（运行 weather_sync.py 同步）</span>'; return; }
-  document.getElementById('weather-content').innerHTML = `
-    <div style="display:flex;gap:24px;flex-wrap:wrap">
-      <div class="stat"><div class="value" style="font-size:22px">${w.desc}</div><div class="label">天气</div></div>
-      <div class="stat"><div class="value" style="font-size:22px">${w.low}~${w.high}°C</div><div class="label">温度</div></div>
-      <div class="stat"><div class="value" style="font-size:22px">${w.humidity || '?'}%</div><div class="label">湿度</div></div>
-      <div class="stat"><div class="value" style="font-size:22px">${w.aqi || '?'}</div><div class="label">AQI</div></div>
-    </div>`;
-}
-
-function renderFitness(today) {
-  if (!today) return;
-  let html = '<div style="display:flex;gap:24px;flex-wrap:wrap">';
-  if (today.vo2max) html += `<div class="stat"><div class="value" style="font-size:22px">${today.vo2max}</div><div class="label">VO₂Max</div></div>`;
-  if (today.training_status) html += `<div class="stat"><div class="value" style="font-size:22px">${today.training_status}</div><div class="label">训练状态</div></div>`;
-  if (today.fitness_age) html += `<div class="stat"><div class="value" style="font-size:22px">${today.fitness_age}岁</div><div class="label">健身年龄</div></div>`;
-  if (today.race_half) html += `<div class="stat"><div class="value" style="font-size:22px">${today.race_half}</div><div class="label">半马预测</div></div>`;
-  html += '</div>';
-  if (!today.vo2max && !today.training_status && !today.fitness_age && !today.race_half) html = '<span style="color:var(--text-muted)">暂无数据</span>';
-  document.getElementById('fitness-content').innerHTML = html;
-}
-
-function renderWeekSummary(data) {
-  const r = data.recent_7d || {};
-  const html = `
-    <div style="display:flex;gap:24px;flex-wrap:wrap">
-      <div class="stat"><div class="value" style="font-size:22px">${r.total_distance_km || 0} km</div><div class="label">7天跑量</div></div>
-      <div class="stat"><div class="value" style="font-size:22px">${r.run_count || 0} 次</div><div class="label">跑步次数</div></div>
-      <div class="stat"><div class="value" style="font-size:22px">${r.total_duration_min || 0} min</div><div class="label">总时长</div></div>
-      <div class="stat"><div class="value" style="font-size:22px">${r.avg_hrv || '?'}</div><div class="label">平均 HRV</div></div>
-    </div>`;
-  document.getElementById('week-summary').innerHTML = html;
-}
-
-let chartInstance = null;
-function renderChart(charts) {
-  if (!charts) return;
-  const ctx = document.getElementById('chart-hrv').getContext('2d');
-  if (chartInstance) chartInstance.destroy();
-
-  const labels = (charts.hrv_trend || []).map(d => d.date.slice(5));
-  const hrvData = (charts.hrv_trend || []).map(d => d.value);
-  const rhrData = (charts.rhr_trend || []).map(d => d.value);
-
-  chartInstance = new Chart(ctx, {
-    type: 'line',
-    data: {
-      labels,
-      datasets: [
-        {
-          label: 'HRV',
-          data: hrvData,
-          borderColor: '#3b82f6',
-          backgroundColor: 'rgba(59,130,246,0.1)',
-          fill: true,
-          tension: 0.4,
-          pointRadius: 3,
-          yAxisID: 'y',
-        },
-        {
-          label: '静息心率',
-          data: rhrData,
-          borderColor: '#22c55e',
-          backgroundColor: 'rgba(34,197,94,0.1)',
-          fill: true,
-          tension: 0.4,
-          pointRadius: 3,
-          yAxisID: 'y1',
-        },
-      ],
-    },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      interaction: { intersect: false, mode: 'index' },
-      plugins: {
-        legend: { labels: { color: '#94a3b8', font: { size: 11 }, usePointStyle: true } },
-      },
-      scales: {
-        x: { ticks: { color: '#64748b', font: { size: 10 } }, grid: { color: '#1e293b' } },
-        y: {
-          type: 'linear',
-          position: 'left',
-          ticks: { color: '#3b82f6', font: { size: 10 } },
-          grid: { color: '#1e293b' },
-        },
-        y1: {
-          type: 'linear',
-          position: 'right',
-          ticks: { color: '#22c55e', font: { size: 10 } },
-          grid: { display: false },
-        },
-      },
-    },
-  });
-}
-
-// ═══════════════════════════════════════════════
-// Chat
-// ═══════════════════════════════════════════════
-const chatMessages = document.getElementById('chat-messages');
-const chatInput = document.getElementById('chat-input');
-const chatSend = document.getElementById('chat-send');
-
-chatSend.addEventListener('click', sendChat);
-chatInput.addEventListener('keydown', e => { if (e.key === 'Enter' && !isStreaming) sendChat(); });
-
-document.querySelectorAll('.quick-btn').forEach(btn => {
-  btn.addEventListener('click', () => {
-    if (isStreaming) return;
-    chatInput.value = btn.dataset.msg;
-    sendChat();
-  });
 });
+
+function logout() {
+  state.token = '';
+  state.userId = 0;
+  localStorage.removeItem(LS_TOKEN);
+  localStorage.removeItem(LS_USER);
+  state.chatMessages = [];
+  if (state.chart) { state.chart.destroy(); state.chart = null; }
+  $('#appView').hidden = true;
+  $('#authView').hidden = false;
+  $('#authPassword').value = '';
+}
+
+$('#logoutBtn').addEventListener('click', () => {
+  logout();
+  toast('已退出登录');
+});
+
+function enterApp() {
+  $('#authView').hidden = true;
+  $('#appView').hidden = false;
+  loadDashboard();
+}
+
+/* ══════════════════════════════════════════════════════════════
+   3. 仪表盘
+   ══════════════════════════════════════════════════════════════ */
+const TIER_CLASS = { REST:'tier-REST', EASY:'tier-EASY', MODERATE:'tier-MODERATE', HARD:'tier-HARD', LONG:'tier-LONG' };
+const TIER_LABEL = { REST:'休息', EASY:'轻松跑', MODERATE:'有氧稳态', HARD:'高强度', LONG:'长距离' };
+
+function hrvStatusLabel(s) {
+  const m = { BALANCED:'均衡', UNBALANCED:'失衡', LOW:'偏低', POOR:'偏差', HIGH:'偏高' };
+  return m[String(s || '').toUpperCase()] || (s || '');
+}
+
+function weatherIcon(desc) {
+  const d = String(desc || '');
+  if (/雷/.test(d)) return '⛈️';
+  if (/暴雨|大雨/.test(d)) return '🌧️';
+  if (/雨/.test(d)) return '🌦️';
+  if (/雪/.test(d)) return '🌨️';
+  if (/雾|霾/.test(d)) return '🌫️';
+  if (/阴/.test(d)) return '☁️';
+  if (/多云/.test(d)) return '⛅';
+  if (/晴/.test(d)) return '☀️';
+  return '🌤️';
+}
+
+function activityIcon(type) {
+  const m = { running:'🏃', cycling:'🚴', swimming:'🏊', strength_training:'🏋️', walking:'🚶' };
+  return m[type] || '🏅';
+}
+
+function activityLabel(type) {
+  const m = { running:'跑步', cycling:'骑行', swimming:'游泳', strength_training:'力量训练', walking:'步行' };
+  return m[type] || (type || '运动');
+}
+
+let dashLoading = false;
+async function loadDashboard() {
+  if (dashLoading) return;
+  dashLoading = true;
+  const box = $('#dashContent');
+  box.innerHTML = `
+    <div class="card"><div class="skeleton" style="height:14px;width:40%;margin-bottom:12px"></div><div class="skeleton" style="height:64px"></div></div>
+    <div class="row2" style="margin-top:12px"><div class="card"><div class="skeleton" style="height:70px"></div></div><div class="card"><div class="skeleton" style="height:70px"></div></div></div>
+    <div class="card" style="margin-top:12px"><div class="skeleton" style="height:150px"></div></div>`;
+
+  try {
+    const data = await api('/api/health/dashboard');
+    renderDashboard(data);
+    $('#topbarMeta').textContent = `${data.datetime || ''} · ${data.period || ''}`;
+  } catch (err) {
+    box.innerHTML = `<div class="card"><div class="empty">⚠️ ${esc(err.message)}</div></div>`;
+    $('#topbarMeta').textContent = '加载失败';
+  } finally {
+    dashLoading = false;
+  }
+}
+
+function renderDashboard(d) {
+  const today = d.today || {};
+  const safety = d.safety || {};
+  const recent = d.recent_7d || {};
+  const charts = d.charts || {};
+  const hasData = Object.keys(today).length > 0;
+  const parts = [];
+
+  // ── 1 天气与跑步窗口 ──
+  const hasWeather = today.weather_desc || today.now_temp != null;
+  parts.push(`<div class="card">
+    <div class="card-label">🌤️ 天气与跑步窗口</div>
+    ${hasWeather ? `
+      <div class="weather-top">
+        <div>
+          <div class="weather-temp">${today.now_temp != null ? esc(today.now_temp)+'°' : (today.weather_high != null ? esc(today.weather_high)+'°' : '—')}</div>
+          <div class="weather-desc">${weatherIcon(today.now_text || today.weather_desc)} ${esc(today.now_text || today.weather_desc || '')}${today.now_feels_like != null ? ` · 体感 ${esc(today.now_feels_like)}°` : ''}</div>
+        </div>
+        <div style="text-align:right;font-size:12.5px;color:var(--muted);line-height:1.8">
+          ${(today.weather_low != null && today.weather_high != null) ? `<div>${esc(today.weather_low)}° ~ ${esc(today.weather_high)}°</div>` : ''}
+          ${today.location ? `<div>📍 ${esc(today.location)}</div>` : ''}
+        </div>
+      </div>
+      <div class="weather-grid">
+        ${today.weather_humidity != null ? `<span>湿度 <b>${esc(today.weather_humidity)}%</b></span>` : ''}
+        ${today.weather_aqi != null ? `<span>AQI <b>${esc(today.weather_aqi)}</b> ${esc(today.weather_aqi_category || '')}</span>` : ''}
+        ${today.weather_uv != null ? `<span>UV <b>${esc(today.weather_uv)}</b></span>` : ''}
+        ${today.weather_rain_prob != null ? `<span>降水 <b>${Math.round(today.weather_rain_prob*100)}%</b></span>` : ''}
+      </div>` : `<div class="empty">今日天气未同步</div>`}
+  </div>`);
+
+  // ── 2 安全档位 ──
+  const tier = safety.max_tier || 'LONG';
+  parts.push(`<div class="tier ${TIER_CLASS[tier] || 'tier-LONG'}">
+    <div class="card-label" style="color:inherit;opacity:.75;margin-bottom:6px">🛡️ 安全档位</div>
+    <div class="tier-name">${esc(tier)} · ${esc(TIER_LABEL[tier] || '')}</div>
+    <div class="tier-desc">${esc(safety.tier_description || '')}</div>
+    ${(safety.blockers||[]).length ? `<ul class="tier-list">${safety.blockers.map(b=>`<li>⚠️ ${esc(b)}</li>`).join('')}</ul>` : ''}
+    ${(safety.notes||[]).length ? `<ul class="tier-list">${safety.notes.map(n=>`<li>💡 ${esc(n)}</li>`).join('')}</ul>` : ''}
+  </div>`);
+
+  // ── 3 HRV + 静息心率 ──
+  parts.push(`<div class="row2">
+    <div class="card">
+      <div class="card-label">🫀 HRV</div>
+      <div><span class="big">${today.hrv != null ? esc(today.hrv) : '—'}</span><span class="unit">毫秒</span></div>
+      ${today.hrv_status ? `<div style="font-size:12.5px;color:var(--muted);margin-top:6px">${esc(hrvStatusLabel(today.hrv_status))}</div>` : ''}
+    </div>
+    <div class="card">
+      <div class="card-label">❤️ 静息心率</div>
+      <div><span class="big">${today.resting_hr != null ? esc(today.resting_hr) : '—'}</span><span class="unit">bpm</span></div>
+    </div>
+  </div>`);
+
+  // ── 4 身体电量 + 今日步数 ──
+  const bb = today.body_battery_now != null ? today.body_battery_now : today.body_battery_high;
+  parts.push(`<div class="row2">
+    <div class="card">
+      <div class="card-label">🔋 身体电量</div>
+      <div><span class="big">${bb != null ? esc(bb) : '—'}</span><span class="unit">/100</span></div>
+    </div>
+    <div class="card">
+      <div class="card-label">👣 今日步数</div>
+      <div><span class="big">${today.steps != null ? Number(today.steps).toLocaleString() : '—'}</span><span class="unit">步</span></div>
+    </div>
+  </div>`);
+
+  // ── 5 昨夜睡眠 ──
+  parts.push(`<div class="card">
+    <div class="card-label">💤 昨夜睡眠</div>
+    ${today.sleep_hours != null ? `
+      <div><span class="big">${esc(today.sleep_hours)}</span><span class="unit">小时</span></div>
+      <div style="display:flex;gap:16px;margin-top:10px;font-size:12.5px;color:var(--muted);flex-wrap:wrap">
+        ${today.sleep_score != null ? `<span>得分 <b style="color:var(--text)">${esc(today.sleep_score)}</b></span>` : ''}
+        ${today.sleep_deep_min != null ? `<span>深睡 <b style="color:var(--text)">${esc(today.sleep_deep_min)}</b> 分钟</span>` : ''}
+        ${today.sleep_rem_min != null ? `<span>REM <b style="color:var(--text)">${esc(today.sleep_rem_min)}</b> 分钟</span>` : ''}
+      </div>` : `<div class="empty">暂无睡眠数据</div>`}
+  </div>`);
+
+  // ── 6 7 天趋势 ──
+  parts.push(`<div class="card">
+    <div class="card-label">📈 7 天趋势</div>
+    <div class="legend">
+      <span><i style="background:var(--accent)"></i>HRV</span>
+      <span><i style="background:var(--success)"></i>静息心率</span>
+      <span><i style="background:var(--warning)"></i>睡眠(h)</span>
+    </div>
+    <div class="chart-wrap"><canvas id="trendChart"></canvas></div>
+  </div>`);
+
+  // ── 7 本周摘要 ──
+  parts.push(`<div class="card">
+    <div class="card-label">📅 本周摘要</div>
+    <div class="stat-line"><span>跑量</span><span>${recent.total_distance_km != null ? esc(recent.total_distance_km)+' km' : '—'}</span></div>
+    <div class="stat-line"><span>跑步次数</span><span>${recent.run_count != null ? esc(recent.run_count)+' 次' : '—'}</span></div>
+    <div class="stat-line"><span>平均 HRV</span><span>${recent.avg_hrv != null ? esc(recent.avg_hrv) : '—'}</span></div>
+    <div class="stat-line"><span>平均静息心率</span><span>${recent.avg_resting_hr != null ? esc(recent.avg_resting_hr)+' bpm' : '—'}</span></div>
+    <div class="stat-line"><span>平均睡眠</span><span>${recent.avg_sleep_h != null ? esc(recent.avg_sleep_h)+' h' : '—'}</span></div>
+  </div>`);
+
+  // ── 8 心肺与负荷 ──
+  parts.push(`<div class="card">
+    <div class="card-label">🫁 心肺 · 负荷</div>
+    <div class="stat-line"><span>VO₂Max</span><span>${today.vo2max != null ? esc(today.vo2max) : '—'}</span></div>
+    <div class="stat-line"><span>训练状态</span><span>${esc(today.training_status || '—')}</span></div>
+    <div class="stat-line"><span>ACWR</span><span>${today.acwr_ratio != null ? esc(today.acwr_ratio) : '—'}</span></div>
+    <div class="stat-line"><span>健身年龄</span><span>${today.fitness_age != null ? esc(today.fitness_age) : '—'}</span></div>
+  </div>`);
+
+  // ── 9 比赛预测 ──
+  const races = [
+    ['5K', today.race_5k], ['10K', today.race_10k],
+    ['半马', today.race_half], ['全马', today.race_full],
+  ].filter(([, v]) => v);
+  parts.push(`<div class="card">
+    <div class="card-label">🏁 比赛预测</div>
+    ${races.length
+      ? `<div class="row2" style="gap:8px">${races.map(([k,v])=>`<div style="background:var(--input);border-radius:10px;padding:10px 12px"><div style="font-size:11px;color:var(--muted)">${k}</div><div style="font-size:17px;font-weight:700;margin-top:2px">${esc(v)}</div></div>`).join('')}</div>`
+      : `<div class="empty">暂无预测数据</div>`}
+  </div>`);
+
+  if (!hasData) {
+    parts.unshift(`<div class="card"><div class="empty">还没有今天的健康数据<br><span style="font-size:12px">在 App 里绑定时手表并同步，或点右上角刷新</span></div></div>`);
+  }
+
+  $('#dashContent').innerHTML = parts.join('');
+  drawTrend(charts);
+}
+
+function drawTrend(charts) {
+  const canvas = $('#trendChart');
+  if (!canvas || typeof Chart === 'undefined') return;
+  if (state.chart) { state.chart.destroy(); state.chart = null; }
+
+  const hrv = charts.hrv_trend || [];
+  const rhr = charts.rhr_trend || [];
+  const sleep = charts.sleep_trend || [];
+  const base = hrv.length ? hrv : (rhr.length ? rhr : sleep);
+  const labels = base.map(p => (p.date || '').slice(5));
+
+  if (!labels.length) {
+    canvas.parentElement.innerHTML = '<div class="empty">暂无趋势数据</div>';
+    return;
+  }
+
+  const mk = (arr, color) => ({
+    label: '',
+    data: labels.map(d => {
+      const hit = arr.find(p => (p.date || '').slice(5) === d);
+      return hit ? hit.value : null;
+    }),
+    borderColor: color, backgroundColor: color + '22',
+    tension: .35, borderWidth: 2, pointRadius: 2.5, pointHoverRadius: 4, spanGaps: true,
+  });
+
+  state.chart = new Chart(canvas.getContext('2d'), {
+    type: 'line',
+    data: { labels, datasets: [mk(hrv,'#8B5CF6'), mk(rhr,'#22C55E'), mk(sleep,'#B45309')] },
+    options: {
+      responsive: true, maintainAspectRatio: false, animation: { duration: 400 },
+      plugins: { legend: { display: false }, tooltip: { intersect: false, mode: 'index' } },
+      scales: {
+        x: { grid: { color: 'rgba(51,65,85,.35)' }, ticks: { color: '#94A3B8', font: { size: 10 } } },
+        y: { grid: { color: 'rgba(51,65,85,.35)' }, ticks: { color: '#94A3B8', font: { size: 10 } } },
+      },
+    },
+  });
+}
+
+/* ══════════════════════════════════════════════════════════════
+   4. 对话
+   ══════════════════════════════════════════════════════════════ */
+const QUICK_QUESTIONS = ['今晚跑不跑？', '我最近状态怎么样', '这周跑量多少', '帮我安排明天训练'];
+
+function renderQuickRow() {
+  $('#quickRow').innerHTML = QUICK_QUESTIONS
+    .map(q => `<button class="quick" data-q="${esc(q)}">${esc(q)}</button>`).join('');
+  $$('#quickRow .quick').forEach(btn => {
+    btn.addEventListener('click', () => {
+      $('#chatInput').value = btn.dataset.q;
+      sendChat();
+    });
+  });
+}
+
+function renderChat() {
+  const list = $('#chatList');
+  if (!state.chatMessages.length && !state.chatBusy) {
+    list.innerHTML = `<div class="empty" style="padding:40px 12px">
+      💬<br>跟运动助理聊聊你的训练<br>
+      <span style="font-size:12px">它会主动查你的心率、睡眠、跑量再回答</span>
+    </div>`;
+    return;
+  }
+  list.innerHTML = state.chatMessages.map(m => {
+    if (m.role === 'user') {
+      return `<div class="msg user"><div class="bubble">${esc(m.content)}</div></div>`;
+    }
+    return `<div class="msg assistant"><div class="msg-avatar">🤖</div><div class="bubble">${esc(m.content)}</div></div>`;
+  }).join('') + (state.chatBusy
+    ? `<div class="msg assistant"><div class="msg-avatar">🤖</div><div class="bubble typing"><i></i><i></i><i></i></div></div>`
+    : '');
+  window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
+}
+
+async function loadChatHistory() {
+  try {
+    const rows = await api('/api/chat/history');
+    if (Array.isArray(rows) && rows.length) {
+      state.chatMessages = rows.map(r => ({ role: r.role, content: r.content }));
+      renderChat();
+    }
+  } catch { /* 历史拉不到不影响新对话 */ }
+}
 
 async function sendChat() {
-  const msg = chatInput.value.trim();
-  if (!msg || isStreaming) return;
-  chatInput.value = '';
-  document.getElementById('quick-actions').style.display = 'none';
+  if (state.chatBusy) return;
+  const input = $('#chatInput');
+  const msg = input.value.trim();
+  if (!msg) return;
 
-  addMessage('user', msg);
-  const assistantMsg = addMessage('assistant', '', true);
+  input.value = '';
+  input.style.height = 'auto';
+  state.chatMessages.push({ role: 'user', content: msg });
+  state.chatBusy = true;
+  renderChat();
 
-  isStreaming = true;
-  chatSend.disabled = true;
+  const sendBtn = $('#sendBtn');
+  sendBtn.disabled = true;
 
   try {
-    // 使用 WebSocket 流式
-    const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const wsUrl = `${protocol}//${location.host}/ws/chat`;
-    ws = new WebSocket(wsUrl);
-
-    ws.onopen = () => {
-      ws.send(JSON.stringify({ message: msg }));
-    };
-
-    ws.onmessage = (event) => {
-      const data = JSON.parse(event.data);
-      if (data.type === 'context') {
-        // 显示安全档位提示
-        const safety = data.safety;
-        if (safety) {
-          const ctxDiv = document.createElement('div');
-          ctxDiv.className = 'safety-context';
-          ctxDiv.innerHTML = `🛡️ 安全档位: <span class="safety-badge safety-${safety.max_tier}" style="font-size:11px">${safety.max_tier}</span> ${safety.tier_description || ''}`;
-          assistantMsg.querySelector('.msg-content').appendChild(ctxDiv);
-        }
-      } else if (data.type === 'token') {
-        assistantMsg.querySelector('.msg-content').innerHTML += data.token
-          .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-          .replace(/\n/g, '<br>');
-        chatMessages.scrollTop = chatMessages.scrollHeight;
-      } else if (data.type === 'done') {
-        assistantMsg.classList.remove('streaming');
-        isStreaming = false;
-        chatSend.disabled = false;
-        chatInput.focus();
-        if (ws) { ws.close(); ws = null; }
-      } else if (data.type === 'error') {
-        assistantMsg.querySelector('.msg-content').innerHTML += `<br><span style="color:var(--danger)">❌ ${data.message}</span>`;
-        assistantMsg.classList.remove('streaming');
-        isStreaming = false;
-        chatSend.disabled = false;
-        if (ws) { ws.close(); ws = null; }
-      }
-    };
-
-    ws.onerror = () => {
-      assistantMsg.querySelector('.msg-content').innerHTML += '<br><span style="color:var(--danger)">❌ 连接失败</span>';
-      assistantMsg.classList.remove('streaming');
-      isStreaming = false;
-      chatSend.disabled = false;
-      ws = null;
-    };
-
-    ws.onclose = () => {
-      if (isStreaming) {
-        assistantMsg.classList.remove('streaming');
-        isStreaming = false;
-        chatSend.disabled = false;
-      }
-    };
-
-  } catch (e) {
-    assistantMsg.querySelector('.msg-content').innerHTML = `❌ ${e.message}`;
-    assistantMsg.classList.remove('streaming');
-    isStreaming = false;
-    chatSend.disabled = false;
-  }
-}
-
-function addMessage(role, content, streaming = false) {
-  const div = document.createElement('div');
-  div.className = `msg ${role}${streaming ? ' streaming' : ''}`;
-  const now = new Date();
-  const time = `${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`;
-
-  if (role === 'user') {
-    div.innerHTML = `<div class="msg-content">${escapeHtml(content)}</div><div class="time">${time}</div>`;
-  } else {
-    div.innerHTML = `<div class="msg-content">${content}</div><div class="time">${time}</div>`;
-  }
-
-  chatMessages.appendChild(div);
-  chatMessages.scrollTop = chatMessages.scrollHeight;
-  return div;
-}
-
-function escapeHtml(text) {
-  return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-}
-
-// ═══════════════════════════════════════════════
-// History
-// ═══════════════════════════════════════════════
-async function refreshHistory() {
-  try {
-    const res = await fetchAuth('/api/health/recent/30');
-    const days = await res.json();
-    const allActivities = [];
-    days.forEach(d => {
-      (d.activities || []).forEach(a => {
-        allActivities.push({ ...a, date: d.date, weekday: d.weekday });
-      });
-    });
-    allActivities.sort((a, b) => b.date.localeCompare(a.date) || (b.time || '').localeCompare(a.time || ''));
-
-    const container = document.getElementById('activities-list');
-    if (!allActivities.length) {
-      container.innerHTML = '<div style="padding:16px;color:var(--text-muted)">暂无活动记录</div>';
-      return;
-    }
-
-    const emoji = { running: '🏃', cycling: '🚴', walking: '🚶', strength_training: '💪' };
-    container.innerHTML = allActivities.slice(0, 30).map(a => `
-      <div class="activity-item" onclick="showActivityDetail('${a.activity_id}')">
-        <div class="act-icon">${emoji[a.type] || '🏋️'}</div>
-        <div class="act-info">
-          <div class="act-title">${a.type === 'running' ? '跑步' : a.type || '运动'} · ${a.distance_km || '?'}km · ${a.duration_min || '?'}min</div>
-          <div class="act-detail">${a.date} 周${a.weekday || '?'} · ${a.time || ''} · 心率${a.avg_hr || '?'} · 配速${a.avg_pace || '?'}</div>
-        </div>
-      </div>
-    `).join('');
-  } catch (e) {
-    console.error('History load error:', e);
-  }
-}
-
-async function showActivityDetail(activityId) {
-  try {
-    const res = await fetchAuth(`/api/health/activity/${activityId}`);
-    const a = await res.json();
-    const zones = a.hr_zones || {};
-    const totalSec = Object.values(zones).reduce((s, v) => s + (typeof v === 'number' ? v : 0), 0) || 1;
-    const z5Pct = ((zones.z5_sec || 0) / totalSec * 100).toFixed(0);
-
-    let detail = `
-      🏃 活动 ${activityId}
-      ━━━━━━━━━━━━━━━━━━
-      距离: ${a.distance_km}km · 时长: ${a.duration_min}min
-      配速: ${a.avg_pace} · 心率: ${a.avg_hr}/${a.max_hr}
-      训练效果: 有氧 ${a.training_effect_aerobic} / 无氧 ${a.training_effect_anaerobic}
-      Zone 5: ${z5Pct}%`;
-
-    if (a.splits?.length) {
-      detail += '\n\n分段:';
-      a.splits.filter(s => s.dist_km >= 0.5).forEach(s => {
-        detail += `\n  ${s.km}km: ${s.pace} · 心率${s.hr}`;
-      });
-    }
-
-    alert(detail);
-  } catch (e) {
-    alert('加载活动详情失败');
-  }
-}
-
-// ═══════════════════════════════════════════════
-// Init
-// ═══════════════════════════════════════════════
-refreshDashboard();
-
-// 定时刷新仪表盘（5分钟）
-setInterval(() => {
-  if (currentTab === 'dashboard') refreshDashboard();
-}, 300000);
-
-// 注册 Service Worker (PWA)
-if ('serviceWorker' in navigator) {
-  navigator.serviceWorker.register('/static/sw.js').catch(() => {});
-}
-
-// ═══════════════════════════════════════════════
-// Login overlay + auth-required gate
-// ═══════════════════════════════════════════════
-const loginOverlay = document.getElementById('login-overlay');
-const loginForm = document.getElementById('login-form');
-const loginMsg = document.getElementById('login-msg');
-
-function showLoginOverlay() {
-  loginOverlay.classList.remove('hidden');
-}
-function hideLoginOverlay() {
-  loginOverlay.classList.add('hidden');
-  loginMsg.textContent = '';
-}
-
-loginForm.addEventListener('submit', async (e) => {
-  e.preventDefault();
-  const phone = document.getElementById('login-phone').value.trim();
-  const password = document.getElementById('login-password').value;
-  if (!phone || !password) {
-    loginMsg.innerHTML = '<span style="color:var(--danger)">请填写手机号和密码</span>';
-    return;
-  }
-  const btnLogin = document.getElementById('btn-login');
-  btnLogin.disabled = true;
-  btnLogin.textContent = '登录中...';
-  try {
-    const res = await fetch(API + '/api/auth/login', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ phone, password }),
-    });
-    const data = await res.json();
-    if (res.ok) {
-      setToken(data.token, data.user_id);
-      hideLoginOverlay();
-      refreshDashboard();
-      // 如果账号页开着，重新加载
-      if (!accountOverlay.classList.contains('hidden')) {
-        loadAccountInfo();
-        loadDeviceList();
-      }
-    } else {
-      loginMsg.innerHTML = '<span style="color:var(--danger)">❌ ' + (data.detail || '登录失败') + '</span>';
-    }
+    const data = await api('/api/chat', { method: 'POST', body: { message: msg } });
+    state.chatMessages.push({ role: 'assistant', content: (data && data.reply) || '（没有回复）' });
+    if (data && data.recorded) toast('已记录这次训练');
   } catch (err) {
-    loginMsg.innerHTML = '<span style="color:var(--danger)">❌ 网络错误</span>';
+    state.chatMessages.push({ role: 'assistant', content: `⚠️ ${err.message}` });
   } finally {
-    btnLogin.disabled = false;
-    btnLogin.textContent = '登录';
+    state.chatBusy = false;
+    sendBtn.disabled = false;
+    renderChat();
   }
-});
-
-// 启动时检查：有 token 才正常加载，没 token 弹登录
-if (!getToken()) {
-  showLoginOverlay();
 }
-const accountOverlay = document.getElementById('account-overlay');
-const btnAccount = document.getElementById('btn-account');
-const btnAccountBack = document.getElementById('btn-account-back');
-const btnSync = document.getElementById('btn-sync');
-const btnLogout = document.getElementById('btn-logout');
 
-btnAccount.addEventListener('click', () => openAccount());
-btnAccountBack.addEventListener('click', () => closeAccount());
+/* ══════════════════════════════════════════════════════════════
+   5. 训练记录
+   ══════════════════════════════════════════════════════════════ */
+let historyLoading = false;
+async function loadHistory() {
+  if (historyLoading) return;
+  historyLoading = true;
+  const box = $('#historyContent');
+  box.innerHTML = `<div class="card"><div class="skeleton" style="height:56px"></div></div>
+    <div class="card" style="margin-top:12px"><div class="skeleton" style="height:56px"></div></div>`;
 
-btnSync.addEventListener('click', async () => {
-  btnSync.disabled = true;
-  btnSync.textContent = '⏳ 同步中...';
   try {
-    const res = await fetchAuth('/api/health/sync', { method: 'POST' });
-    const data = await res.json();
-    if (res.ok) {
-      btnSync.textContent = '✅ 已同步';
-      if (currentTab === 'dashboard') refreshDashboard();
-    } else {
-      btnSync.textContent = '❌ ' + (data.detail || '失败');
-    }
-  } catch (e) {
-    btnSync.textContent = '❌ 网络错误';
-  }
-  setTimeout(() => { btnSync.textContent = '🔄 同步'; btnSync.disabled = false; }, 3000);
-});
-
-btnLogout.addEventListener('click', () => {
-  if (!confirm('确定要退出登录吗？退出后需要重新输入手机号和密码。')) return;
-  localStorage.removeItem('garmin_token');
-  localStorage.removeItem('garmin_user_id');
-  location.reload();
-});
-
-function openAccount() {
-  accountOverlay.classList.remove('hidden');
-  loadAccountInfo();
-  loadDeviceList();
-}
-
-function closeAccount() {
-  accountOverlay.classList.add('hidden');
-}
-
-async function loadAccountInfo() {
-  const phoneEl = document.getElementById('account-phone');
-  const createdEl = document.getElementById('account-created');
-  try {
-    const res = await fetchAuth('/api/auth/me');
-    if (res.status === 401) {
-      phoneEl.textContent = '未登录';
-      return;
-    }
-    const data = await res.json();
-    phoneEl.textContent = data.phone || '—';
-    if (data.created_at) {
-      // created_at 是 ISO 字符串，格式化成 YYYY-MM-DD HH:MM
-      const d = new Date(data.created_at.replace(' ', 'T') + (data.created_at.includes('Z') ? '' : 'Z'));
-      if (!isNaN(d)) createdEl.textContent = d.toLocaleString('zh-CN', { hour12: false });
-    }
-  } catch (e) {
-    phoneEl.textContent = '加载失败';
+    const days = await api('/api/health/recent/30');
+    renderHistory(days || []);
+  } catch (err) {
+    box.innerHTML = `<div class="card"><div class="empty">⚠️ ${esc(err.message)}</div></div>`;
+  } finally {
+    historyLoading = false;
   }
 }
 
-async function loadDeviceList() {
-  const container = document.getElementById('device-list');
-  try {
-    const res = await fetchAuth('/api/watch/list');
-    if (res.status === 401) {
-      container.innerHTML = '<div style="padding:12px;color:var(--text-muted)">请先登录</div>';
-      return;
-    }
-    const data = await res.json();
-    const brands = { garmin: 'Garmin', coros: 'Coros', apple: 'Apple Watch', huawei: '华为', xiaomi: '小米' };
-    if (!data || !data.length) {
-      container.innerHTML = '<div style="padding:12px;color:var(--text-muted);background:var(--bg-card);border-radius:var(--radius-sm)">还没有绑定任何设备</div>';
-      return;
-    }
-    container.innerHTML = data.map(d => `
-      <div class="device-row">
-        <div class="dev-info">
-          <div class="dev-brand">${brands[d.brand] || d.brand}</div>
-          <div class="dev-account">${d.account || ''} ${d.enabled ? '' : '（已停用）'}</div>
-        </div>
-        <div class="dev-actions">
-          <button onclick="toggleDevice('${d.brand}', ${!d.enabled})">${d.enabled ? '停用' : '启用'}</button>
-          <button class="danger" onclick="unbindDevice('${d.brand}')">解绑</button>
-        </div>
-      </div>
-    `).join('');
-  } catch (e) {
-    container.innerHTML = '<div style="padding:12px;color:var(--danger)">加载失败</div>';
+function renderHistory(days) {
+  const box = $('#historyContent');
+  const items = [];
+  for (const day of days) {
+    for (const a of (day.activities || [])) items.push({ ...a, date: day.date });
   }
-}
+  items.sort((x, y) => String(y.date).localeCompare(String(x.date)));
 
-async function toggleDevice(brand, enable) {
-  try {
-    const res = await fetchAuth('/api/watch/toggle', {
-      method: 'POST',
-      body: { brand, enabled: enable },
-    });
-    if (res.ok) loadDeviceList();
-    else alert('操作失败');
-  } catch (e) {
-    alert('网络错误');
-  }
-}
-
-async function unbindDevice(brand) {
-  if (!confirm(`确定要解绑 ${brand} 吗？`)) return;
-  try {
-    const res = await fetchAuth(`/api/watch/unbind?brand=${encodeURIComponent(brand)}`, { method: 'DELETE' });
-    if (res.ok) loadDeviceList();
-    else alert('解绑失败');
-  } catch (e) {
-    alert('网络错误');
-  }
-}
-
-// 绑定设备表单
-let bindState = { needsMfa: false };
-const bindForm = document.getElementById('bind-form');
-const bindMfaArea = document.getElementById('bind-mfa-area');
-const bindMsg = document.getElementById('bind-msg');
-
-bindForm.addEventListener('submit', async (e) => {
-  e.preventDefault();
-  bindMsg.textContent = '';
-  bindMfaArea.innerHTML = '';
-
-  const brand = document.getElementById('bind-brand').value;
-  const account = document.getElementById('bind-account').value.trim();
-  const password = document.getElementById('bind-password').value;
-  const mfaCodeEl = document.getElementById('bind-mfa-code');
-  const mfaCode = mfaCodeEl ? mfaCodeEl.value.trim() : '';
-
-  if (!account || !password) {
-    bindMsg.innerHTML = '<span style="color:var(--danger)">请填写账号和密码</span>';
+  if (!items.length) {
+    box.innerHTML = `<div class="card"><div class="empty">
+      🏋️<br>暂无训练记录<br>
+      <span style="font-size:12px">去对话页跟助理说「我今天练了力量」来记录</span>
+    </div></div>`;
     return;
   }
 
-  const btnBind = document.getElementById('btn-bind');
-  btnBind.disabled = true;
-  btnBind.textContent = '绑定中...';
+  box.innerHTML = items.map(a => {
+    const meta = [
+      a.distance_km != null ? `${a.distance_km} km` : '',
+      a.duration_min != null ? `${Math.round(a.duration_min)} 分钟` : '',
+      a.avg_pace ? `配速 ${a.avg_pace}` : '',
+      a.avg_hr ? `心率 ${a.avg_hr}` : '',
+    ].filter(Boolean).map(x => `<span>${esc(x)}</span>`).join('');
 
+    return `<div class="card act" data-id="${esc(a.activity_id || '')}">
+      <div class="act-icon">${activityIcon(a.type)}</div>
+      <div class="act-body">
+        <div class="act-title">${esc(activityLabel(a.type))} · ${esc(a.date)}${a.time ? ' ' + esc(a.time) : ''}</div>
+        <div class="act-meta">${meta || '<span>—</span>'}</div>
+      </div>
+      <div class="act-arrow">›</div>
+    </div>`;
+  }).join('');
+
+  $$('#historyContent .act').forEach(el => {
+    el.addEventListener('click', () => openActivityDetail(el.dataset.id));
+  });
+}
+
+async function openActivityDetail(activityId) {
+  if (!activityId) return;
+  openModal('训练详情', '<div class="empty">加载中…</div>');
   try {
-    let url = '/api/watch/bind';
-    let body = { brand, account, password };
-    if (bindState.needsMfa && mfaCode) {
-      url = '/api/watch/bind-mfa';
-      body = { mfa_code: mfaCode };
-    }
-
-    const res = await fetchAuth(url, { method: 'POST', body });
-    const data = await res.json();
-
-    if (res.ok && data.needs_mfa) {
-      // 显示 MFA 输入框
-      bindState.needsMfa = true;
-      bindMfaArea.innerHTML = '<div class="mfa-hint">📱 Garmin 检测到两步验证，请在下方输入验证码：</div><input type="text" id="bind-mfa-code" placeholder="6 位验证码" style="margin-top:6px">';
-      bindMsg.innerHTML = '<span style="color:var(--warn)">请输入两步验证码后再次点击绑定</span>';
-    } else if (res.ok) {
-      bindMsg.innerHTML = '<span style="color:var(--success)">✅ ' + (data.message || '绑定成功') + '</span>';
-      // 清空表单 + 重新加载设备列表
-      document.getElementById('bind-account').value = '';
-      document.getElementById('bind-password').value = '';
-      bindMfaArea.innerHTML = '';
-      bindState.needsMfa = false;
-      loadDeviceList();
-    } else {
-      bindMsg.innerHTML = '<span style="color:var(--danger)">❌ ' + (data.detail || '绑定失败') + '</span>';
-    }
-  } catch (e) {
-    bindMsg.innerHTML = '<span style="color:var(--danger)">❌ 网络错误</span>';
-  } finally {
-    btnBind.disabled = false;
-    btnBind.textContent = '绑定';
+    const a = await api(`/api/health/activity/${encodeURIComponent(activityId)}`);
+    renderActivityDetail(a);
+  } catch (err) {
+    $('#modalBody').innerHTML = `<div class="empty">⚠️ ${esc(err.message)}</div>`;
   }
+}
+
+function renderActivityDetail(a) {
+  const rows = [];
+  const add = (label, value, unit = '') => {
+    if (value != null && value !== '') {
+      rows.push(`<div class="stat-line"><span>${esc(label)}</span><span>${esc(value)}${unit ? ' ' + esc(unit) : ''}</span></div>`);
+    }
+  };
+
+  add('日期', a.date);
+  add('时间', a.time);
+  add('地点', a.location);
+  add('距离', a.distance_km, 'km');
+  add('时长', a.duration_min, '分钟');
+  add('平均配速', a.avg_pace);
+  add('平均心率', a.avg_hr, 'bpm');
+  add('最高心率', a.max_hr, 'bpm');
+  add('卡路里', a.calories, 'kcal');
+  add('有氧训练效果', a.training_effect_aerobic);
+  add('步频', a.cadence_avg);
+  add('爬升', a.elevation_gain_m, 'm');
+
+  let html = `<div style="display:flex;align-items:center;gap:12px;margin-bottom:14px">
+    <div class="act-icon" style="width:52px;height:52px;font-size:24px">${activityIcon(a.type)}</div>
+    <div>
+      <div style="font-size:16px;font-weight:700">${esc(activityLabel(a.type))}</div>
+      <div class="muted" style="font-size:12.5px">${esc(a.date || '')} ${esc(a.time || '')}</div>
+    </div>
+  </div>`;
+  html += rows.join('');
+
+  let zones = a.hr_zones;
+  if (typeof zones === 'string') { try { zones = JSON.parse(zones); } catch { zones = null; } }
+  if (zones && typeof zones === 'object') {
+    const secs = Object.entries(zones).filter(([k, v]) => k.endsWith('_sec') && v);
+    if (secs.length) {
+      html += `<div class="section-title">心率区间</div><div class="split-list">` +
+        secs.map(([k, v]) => `<span class="split">${esc(k.replace('_sec','').toUpperCase())} ${Math.round(v/60)}分</span>`).join('') +
+        `</div>`;
+    }
+  }
+
+  let splits = a.splits;
+  if (typeof splits === 'string') { try { splits = JSON.parse(splits); } catch { splits = null; } }
+  if (Array.isArray(splits) && splits.length) {
+    html += `<div class="section-title">分段配速</div><div class="split-list">` +
+      splits.map(s => {
+        const t = [s.km != null ? s.km + 'km' : '', s.pace || '', s.hr ? 'HR' + s.hr : ''].filter(Boolean).join(' ');
+        return `<span class="split">${esc(t)}</span>`;
+      }).join('') + `</div>`;
+  }
+
+  if (Array.isArray(a.strength_sets) && a.strength_sets.length) {
+    html += `<div class="section-title">动作明细</div>`;
+    html += a.strength_sets.map(s => {
+      const detail = [
+        s.sets != null ? `${s.sets} 组` : '',
+        s.reps_detail ? s.reps_detail : (s.reps != null ? `× ${s.reps}` : ''),
+        s.weight_kg != null ? `${s.weight_kg} kg` : '',
+        s.equipment || '',
+      ].filter(Boolean).join(' · ');
+      return `<div class="stat-line"><span>${esc(s.name || '')}</span><span>${esc(detail)}</span></div>`;
+    }).join('');
+  }
+
+  $('#modalBody').innerHTML = html;
+}
+
+/* ══════════════════════════════════════════════════════════════
+   6. 弹窗 / 导航 / 事件
+   ══════════════════════════════════════════════════════════════ */
+function openModal(title, bodyHtml) {
+  $('#modalTitle').textContent = title;
+  $('#modalBody').innerHTML = bodyHtml;
+  $('#modal').hidden = false;
+  document.body.style.overflow = 'hidden';
+}
+
+function closeModal() {
+  $('#modal').hidden = true;
+  document.body.style.overflow = '';
+}
+
+$('#modalClose').addEventListener('click', closeModal);
+$('#modal').addEventListener('click', (e) => { if (e.target.id === 'modal') closeModal(); });
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeModal(); });
+
+let currentTab = 'dashboard';
+function switchTab(tab) {
+  currentTab = tab;
+  $$('.tab-pane').forEach(p => p.classList.toggle('active', p.dataset.pane === tab));
+  $$('.tabbar button').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
+  window.scrollTo({ top: 0 });
+  if (tab === 'dashboard') loadDashboard();
+  if (tab === 'chat') { renderQuickRow(); loadChatHistory().then(renderChat); renderChat(); }
+  if (tab === 'history') loadHistory();
+}
+
+$$('.tabbar button').forEach(btn => {
+  btn.addEventListener('click', () => switchTab(btn.dataset.tab));
 });
 
-// header 时间显示：dashboard 加载时由 refreshDashboard 更新到 #header-time 元素
+$('#refreshBtn').addEventListener('click', () => {
+  if (currentTab === 'dashboard') loadDashboard();
+  else if (currentTab === 'history') loadHistory();
+  else renderChat();
+  toast('已刷新');
+});
+
+$('#sendBtn').addEventListener('click', sendChat);
+
+$('#chatInput').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendChat(); }
+});
+$('#chatInput').addEventListener('input', function () {
+  this.style.height = 'auto';
+  this.style.height = Math.min(this.scrollHeight, 120) + 'px';
+});
+
+/* ══════════════════════════════════════════════════════════════
+   7. 启动
+   ══════════════════════════════════════════════════════════════ */
+(async function boot() {
+  if (!state.token) return;
+  try {
+    await api('/api/auth/me');
+    enterApp();
+  } catch {
+    logout();
+  }
+})();
 </script>
 </body>
 </html>
