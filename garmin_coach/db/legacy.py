@@ -18,28 +18,22 @@ if str(SRC_DIR) not in sys.path:
 
 from database import (  # noqa: E402
     get_activity,
-    get_dashboard,
     get_day,
     get_latest_plan,
     get_recent,
-    get_standard_exercise_names,
     get_user_profile,
     get_weather,
-    has_health_data,
     record_training,
     save_plan,
 )
 
 __all__ = [
     "get_activity",
-    "get_dashboard",
     "get_day",
     "get_latest_plan",
     "get_recent",
-    "get_standard_exercise_names",
     "get_user_profile",
     "get_weather",
-    "has_health_data",
     "record_training",
     "save_plan",
 ]

@@ -6,7 +6,6 @@ import hashlib
 import os
 import datetime as dt
 from typing import Optional
-from pathlib import Path
 
 import jwt
 from fastapi import HTTPException, Request, Depends

@@ -3,7 +3,6 @@ Garmin Coach 独立版 —— FastAPI 后端
 提供 REST API + WebSocket 聊天 + 静态文件服务
 """
 import sys
-import os
 import json
 import re
 import logging
@@ -31,14 +30,14 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Depends, UploadFile, File, Form
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 from database import (
     init_db, get_day, get_recent, get_dashboard, get_activity,
     get_weather, add_chat, get_chat_history, clear_chat_history,
-    add_note, upsert_health_daily,
-    create_user, get_user_by_phone, get_user_by_id,
+    add_note,
+    create_user, get_user_by_phone,
     bind_watch, unbind_watch, get_watch_bindings, set_watch_enabled, select_watch,
     record_training, get_standard_exercise_names,
     get_chat_dates, cleanup_old_chat,
@@ -46,8 +45,8 @@ from database import (
     get_last_sync_date, update_last_sync_date, delete_activity, update_activity_exercises,
     save_plan, get_latest_plan,
 )
-from llm_client import chat_stream, get_provider, PROVIDERS, asr_transcribe
-from safety_rules import evaluate, tier_description
+from llm_client import chat_stream, PROVIDERS, asr_transcribe
+from garmin_coach.services.safety import compute_safety
 from push_service import init_firebase, register_device, send_push, get_active_tokens, check_and_notify
 from auth import hash_password, verify_password, create_token, get_current_user
 from garmin_server_sync import login_and_store, complete_mfa, sync_user_garmin, sync_all_users
@@ -72,101 +71,17 @@ STATIC_DIR.mkdir(exist_ok=True)
 AUDIO_DIR = STATIC_DIR / "audio"
 AUDIO_DIR.mkdir(exist_ok=True)
 
-# 健康数据目录（旧的 markdown 数据源；不硬编码用户名）
-HEALTH_DIR = (
-    Path(os.environ.get("GARMIN_STUDY_DIR") or (Path.home() / "study"))
-    / "知识库"
-    / "健康"
-)
+# 安全档位的计算在 garmin_coach/services/safety.py —— 网页接口和 AI 工具共用同一份，
+# 避免出现「网页说 EASY、AI 说 HARD」。这里只 import，不再本地复制一份实现。
 
 
 # ═══════════════════════════════════════════════
-# 安全档位计算（内联 deployment）
-# ═══════════════════════════════════════════════
-
-def compute_safety(user_id: int = 0) -> dict:
-    """用最近数据计算安全档位。"""
-    today = dt.date.today().isoformat()
-    yesterday = (dt.date.today() - dt.timedelta(days=1)).isoformat()
-
-    today_data = get_day(today, user_id) or {}
-    yesterday_data = get_day(yesterday, user_id) or {}
-    base = today_data if today_data else yesterday_data
-
-    if not base:
-        return {"max_tier": "LONG", "tier_description": tier_description("LONG"),
-                "blockers": [], "notes": ["⚠️ 无数据，无法评估，按正常状态处理"]}
-
-    # 最近 7 天 HRV
-    recent = get_recent(7, user_id)
-    hrv_vals = [d.get("hrv") for d in recent if d.get("hrv")]
-    recent_hrv_avg = sum(hrv_vals) / len(hrv_vals) if hrv_vals else None
-
-    # 最近 3 天高强度
-    hard_days = 0
-    for d in recent[:3]:
-        for a in d.get("activities") or []:
-            hr = a.get("avg_hr") or 0
-            dur = a.get("duration_min") or 0
-            if (hr >= 155 and dur >= 30) or dur >= 75:
-                hard_days += 1
-                break
-
-    # 昨天活动
-    y_acts = []
-    for a in (yesterday_data.get("activities") or []):
-        y_acts.append({
-            "type": a.get("type"),
-            "dist_km": a.get("distance_km"),
-            "dur_min": a.get("duration_min"),
-            "avg_hr": a.get("avg_hr"),
-        })
-
-    weather = today_data.get("weather") or {}
-    flat = {
-        "date": base.get("date"),
-        "hrv": base.get("hrv"),
-        "hrv_status": base.get("hrv_status"),
-        "sleep_hours": base.get("sleep_hours"),
-        "sleep_score": base.get("sleep_score"),
-        "resting_hr": base.get("resting_hr"),
-        "body_battery_high": base.get("body_battery_high"),
-        "training_readiness": base.get("readiness"),
-        "training_readiness_level": base.get("readiness_level"),
-        "acwr_ratio": base.get("acwr_ratio"),
-        "training_feedback": base.get("training_feedback"),
-        "training_status": base.get("training_status"),
-        "weather": {
-            "high": weather.get("weather_high"),
-            "humidity": weather.get("weather_humidity"),
-            "aqi": weather.get("weather_aqi"),
-            "aqi_category": weather.get("weather_aqi_category"),
-            "uv_index": weather.get("weather_uv"),
-            "rain_prob": weather.get("weather_rain_prob"),
-        } if weather else {},
-        "yesterday_activities": y_acts,
-    }
-
-    max_tier, blockers, notes = evaluate(flat, recent_hrv_avg=recent_hrv_avg, recent_hard_days=hard_days)
-
-    return {
-        "max_tier": max_tier,
-        "tier_description": tier_description(max_tier),
-        "blockers": blockers,
-        "notes": notes,
-        "recent_hrv_avg": round(recent_hrv_avg) if recent_hrv_avg else None,
-        "recent_hard_days": hard_days,
-    }
-
-
-# ═══════════════════════════════════════════════
-# 构建 LLM 上下文
+# 构建 LLM 上下文（旧单轮路径：语音 / WebSocket / Agent 失败回退）
 # ═══════════════════════════════════════════════
 
 def build_chat_context(user_id: int = 0) -> dict:
     """构建完整的聊天上下文数据。"""
     now = dt.datetime.now()
-    today_str = now.strftime("%Y-%m-%d")
     hour = now.hour
 
     if hour < 5:
@@ -791,13 +706,6 @@ async def api_record_training(req: RecordTrainingRequest, user_id: int = Depends
     if ok:
         return {"ok": True, "message": f"已记录 {req.date or dt.date.today().isoformat()} {req.type}"}
     return {"ok": False, "message": "记录失败"}
-
-
-def activityLabel(typ: str) -> str:
-    return {
-        "running": "跑步", "strength_training": "力量训练",
-        "cycling": "骑行", "walking": "步行", "swimming": "游泳",
-    }.get(typ, typ)
 
 
 # ═══════════════════════════════════════════════

@@ -113,6 +113,37 @@ Error(message)                   # 错误
 
 ---
 
+### 阶段 3.5 —— 死代码清理 ✅（2026-10-23）
+
+在动阶段 4 之前先把「已经没人调用的东西」清掉，否则拆路由时会分不清
+「这是要搬的逻辑」还是「这是早就不用的残留」。
+
+删掉的文件（`git rm`，需要时 `git checkout <commit> -- <path>` 取回）：
+
+| 删除 | 原因 |
+|---|---|
+| `src/weather_sync.py` | markdown 时代的天气同步，写 `健康/*.md`；线上早已换 `weather_server.py`（直接写库） |
+| `src/frontmatter.py` | 只服务于 markdown 读写，随上面两处一起失效 |
+| `src/migrate_data.py` | 一次性迁移（md → 库），2026-08-13 已执行完 |
+| `src/migrate_sqlite_to_mysql.py` | 一次性迁移（SQLite → MySQL），2026-08-14 已执行完 |
+| `src/init_garmin.py` | 本地单用户 token 引导；多用户改为 `/api/watch/bind` + `config/.tokens/{user_id}/` |
+| `check_server.py` / `quick_check.py` / `start_server.py` / `setup_https.py` / `install_nginx.py` / `start_nginx.py` / `_clean_test.py` | 一次性 paramiko 运维脚本，职责已被 `deploy.py`（含 `--check`）覆盖 |
+| `static/sw.js` / `static/manifest.json` | PWA 残留，`index.html` 从没注册过 service worker |
+| `config/location_cache.json` | 只有已删除的 `weather_sync.py` 在读 |
+
+文件内删掉的死代码：
+
+| 位置 | 内容 |
+|---|---|
+| `src/garmin_sync.py` 625 → 434 行 | `get_client` / `write_health_md` / `sync_day` / `backfill` / `__main__`（写 md 那一半），只留 `fetch_day` / `fetch_activity_full` |
+| `src/server.py` | 本地复制的 `compute_safety`（改为 import `garmin_coach.services.safety`，与 AI 工具共用一份）、死常量 `HEALTH_DIR`、死函数 `activityLabel`、4 个未用 import |
+| `src/database.py` | `normalize_exercise_name` / `_row_dict` / `has_health_data` / `get_user_by_id`（零引用） |
+| `src/push_service.py` | `send_broadcast`（0 引用）+ 未用 import |
+| `garmin_coach/db/legacy.py` | 桥接表里没人用的 3 项（`get_dashboard` / `get_standard_exercise_names` / `has_health_data`） |
+
+验收：`python -m compileall src garmin_coach` 通过；`TestClient` 冒烟
+`/`、`/api/llm/providers`、`/api/health/{safety,dashboard,recent/7}`、`/api/chat/dates` 全 200。
+
 ### 阶段 4 —— 路由瘦身
 
 把 `src/server.py` 按资源拆进 `garmin_coach/api/`：

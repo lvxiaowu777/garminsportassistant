@@ -1,70 +1,18 @@
+"""Garmin 数据拉取 —— 抓某一天的手表数据，产出嵌套 dict。
+
+职责边界：
+- 只做「拉取 + 结构化」，不登录、不落库、不写文件
+- 登录与 token 由 ``garmin_server_sync`` 管（按 user_id 分目录）
+- 落库由 ``database.upsert_health_daily`` 管
+
+历史：早期这个文件还负责把数据写成 ``健康/YYYY-MM-DD.md``（markdown 时代），
+那条路径随「服务器版直接写库」的重构一起删掉了，只保留下面的 fetch_* 函数。
 """
-Garmin 数据同步 —— 拉指定日期的手表数据，落到知识库/健康/YYYY-MM/YYYY-MM-DD.md
+from __future__ import annotations
 
-v2 (2026-07-10)：一次拉全量
-- 每日：睡眠 / HRV / 静息心率 / Body Battery / 压力 / 步数 / 卡路里
-- 每个活动：地点 / 每公里分段 / 心率区间 / 训练效果 / VO2Max / 步频 / 爬升 / 卡路里
-- 数据 md 是唯一真相，之后 CLI 全从这里读
-
-用法：
-    python garmin_sync.py                # 默认拉昨天
-    python garmin_sync.py 2026-07-08     # 指定日期
-    python garmin_sync.py --backfill 7   # 补拉最近 7 天
-"""
-
-import os
-import sys
-import json
-import argparse
 import datetime as dt
-from pathlib import Path
 
-if sys.platform == "win32":
-    try:
-        sys.stdout.reconfigure(encoding="utf-8")
-        sys.stderr.reconfigure(encoding="utf-8")
-    except Exception:
-        pass
-
-from garminconnect import (
-    Garmin,
-    GarminConnectAuthenticationError,
-    GarminConnectConnectionError,
-)
-
-from frontmatter import format as format_frontmatter
-from frontmatter import parse as parse_frontmatter
-
-# 路径常量
-PROJECT_DIR = Path(__file__).resolve().parent.parent
-TOKEN_DIR = PROJECT_DIR / "config" / ".tokens"
-STUDY_DIR = Path(os.environ.get("GARMIN_STUDY_DIR") or (Path.home() / "study"))
-HEALTH_DIR = STUDY_DIR / "知识库" / "健康"
-
-_CLIENT_CACHE = None
-
-
-def get_client() -> Garmin:
-    """用缓存的 token 登录。同进程内只登一次。"""
-    global _CLIENT_CACHE
-    if _CLIENT_CACHE is not None:
-        return _CLIENT_CACHE
-    if not TOKEN_DIR.exists() or not any(TOKEN_DIR.iterdir()):
-        raise RuntimeError(
-            f"Garmin token 不存在: {TOKEN_DIR}\n"
-            f"请先运行: python src/init_garmin.py"
-        )
-    is_cn = True
-    config_file = TOKEN_DIR / "config.json"
-    if config_file.exists():
-        try:
-            is_cn = bool(json.loads(config_file.read_text(encoding="utf-8")).get("is_cn", True))
-        except Exception:
-            pass
-    g = Garmin(is_cn=is_cn)
-    g.login(str(TOKEN_DIR))
-    _CLIENT_CACHE = g
-    return g
+from garminconnect import Garmin
 
 
 def _safe(fn, *args, default=None, **kwargs):
@@ -484,142 +432,3 @@ def fetch_day(g: Garmin, date_str: str) -> dict:
     data["activities"] = activities
 
     return data
-
-
-# ═══════════════════════════════════════════════
-# 写 md（保留 weather + 追加人工笔记）
-# ═══════════════════════════════════════════════
-
-def write_health_md(data: dict) -> Path:
-    date_str = data["date"]
-    year_month = date_str[:7]
-    out_dir = HEALTH_DIR / year_month
-    out_dir.mkdir(parents=True, exist_ok=True)
-    out_path = out_dir / f"{date_str}.md"
-
-    # 保留旧 md 里的 weather 段和笔记段
-    preserved_weather = None
-    preserved_notes = None
-    if out_path.exists():
-        old_data = parse_frontmatter(out_path)
-        if old_data.get("weather") and "weather" not in data:
-            preserved_weather = old_data["weather"]
-        old_text = out_path.read_text(encoding="utf-8")
-        marker = "## 📝 我的笔记"
-        if marker in old_text:
-            preserved_notes = old_text[old_text.index(marker):]
-
-    if preserved_weather:
-        data["weather"] = preserved_weather
-
-    fm = format_frontmatter(data)
-
-    # 正文
-    body_lines = [
-        "",
-        f"# 健康数据 · {date_str}（周{data.get('weekday','?')}）",
-        "",
-        "> 由 [[garmin_sync]] 自动同步。CLI 查询走 `garmin` 命令。",
-        "",
-    ]
-
-    # 活动可读摘要
-    acts = data.get("activities") or []
-    if acts:
-        body_lines.append("## 🏃 活动记录")
-        for a in acts:
-            typ_emoji = {"running": "🏃", "cycling": "🚴", "walking": "🚶", "strength_training": "💪"}.get(a.get("type"), "🏋️")
-            loc = a.get("location") or "?"
-            dist = a.get("distance_km") or 0
-            dur = a.get("duration_min") or 0
-            pace = a.get("avg_pace") or "?"
-            avg_hr = a.get("avg_hr") or "?"
-            max_hr = a.get("max_hr") or "?"
-            time_str = a.get("time") or ""
-            body_lines.append(f"### {typ_emoji} {loc} · {time_str}")
-            body_lines.append(f"- **距离**: {dist} km  **时长**: {dur} 分钟  **均配**: {pace}")
-            body_lines.append(f"- **心率**: 均 {avg_hr} / 峰 {max_hr}")
-            te_a = a.get("training_effect_aerobic")
-            te_an = a.get("training_effect_anaerobic")
-            if te_a is not None or te_an is not None:
-                body_lines.append(f"- **训练效果**: 有氧 {te_a} / 无氧 {te_an}")
-            hrz = a.get("hr_zones") or {}
-            z5 = hrz.get("z5_sec", 0)
-            z4 = hrz.get("z4_sec", 0)
-            total_hrz = sum(v for k, v in hrz.items() if k.endswith("_sec")) or 1
-            if z5 / total_hrz > 0.5:
-                body_lines.append(f"- ⚠️ **Zone 5 占比 {z5*100//total_hrz}%** — 强度偏高，注意恢复")
-            elif z4 + z5 > 0:
-                body_lines.append(f"- 心率区间：Z1-Z3 { (total_hrz - z4 - z5) // 60 } 分钟 · Z4 {z4//60} 分钟 · Z5 {z5//60} 分钟")
-            splits = a.get("splits") or []
-            if splits:
-                body_lines.append("- **分段**：")
-                for lap in splits:
-                    if lap.get("dist_km", 0) < 0.5:
-                        continue
-                    body_lines.append(f"  - {lap.get('km')}km: 配 {lap.get('pace')}, 心率 {lap.get('hr')}")
-            body_lines.append("")
-    else:
-        body_lines.append("## 🏃 活动记录")
-        body_lines.append("- 无运动记录")
-        body_lines.append("")
-
-    if preserved_notes:
-        body_lines.append(preserved_notes)
-    else:
-        body_lines.append("## 📝 我的笔记")
-        body_lines.append("")
-        body_lines.append("<!-- 想到啥写啥，Jarvis 会读 -->")
-        body_lines.append("")
-
-    out_path.write_text(fm + "\n" + "\n".join(body_lines), encoding="utf-8")
-    print(f"✅ 写入: {out_path}")
-    return out_path
-
-
-def sync_day(date_str: str | None = None) -> Path:
-    if date_str is None:
-        yesterday = dt.date.today() - dt.timedelta(days=1)
-        date_str = yesterday.isoformat()
-    g = get_client()
-    data = fetch_day(g, date_str)
-    return write_health_md(data)
-
-
-def backfill(days: int = 7) -> list[Path]:
-    """一次拉最近 N 天（不含今天，含昨天）。"""
-    paths = []
-    g = get_client()
-    for i in range(1, days + 1):
-        d = (dt.date.today() - dt.timedelta(days=i)).isoformat()
-        try:
-            data = fetch_day(g, d)
-            paths.append(write_health_md(data))
-        except Exception as e:
-            print(f"⚠️  {d} 挂了: {type(e).__name__}: {e}")
-    return paths
-
-
-if __name__ == "__main__":
-    ap = argparse.ArgumentParser()
-    ap.add_argument("date", nargs="?", help="YYYY-MM-DD，默认昨天")
-    ap.add_argument("--backfill", type=int, help="补拉最近 N 天")
-    args = ap.parse_args()
-
-    try:
-        if args.backfill:
-            paths = backfill(args.backfill)
-            print(f"\n✅ 补拉完成 {len(paths)} 天")
-        else:
-            path = sync_day(args.date)
-            print(f"\n✅ 完成: {path}")
-    except RuntimeError as e:
-        print(f"❌ {e}")
-        sys.exit(1)
-    except GarminConnectAuthenticationError as e:
-        print(f"❌ Garmin 认证失败（token 可能过期）: {e}")
-        print(f"   重跑: python src/init_garmin.py")
-        sys.exit(2)
-    except GarminConnectConnectionError as e:
-        print(f"❌ 网络错误: {e}")
-        sys.exit(3)

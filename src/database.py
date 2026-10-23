@@ -274,27 +274,6 @@ def get_standard_exercise_names() -> list[str]:
         session.close()
 
 
-def normalize_exercise_name(text: str) -> str:
-    """规则归一化：把别名映射到标准名（查表兜底，主要归一化靠 AI）。"""
-    session = SessionLocal()
-    try:
-        rows = session.execute(select(ExerciseName.name, ExerciseName.aliases)).all()
-        for name, aliases in rows:
-            for alias in (aliases or "").split(","):
-                alias = alias.strip()
-                if alias and alias in text:
-                    return name
-        return text
-    finally:
-        session.close()
-
-
-def _row_dict(row) -> Optional[dict]:
-    if row is None:
-        return None
-    return dict(row._mapping)
-
-
 # ═══════════════════════════════════════════════
 # 健康数据 CRUD
 # ═══════════════════════════════════════════════
@@ -434,18 +413,6 @@ def get_active_brand(user_id: int = 0) -> str:
             .limit(1)
         ).first()
         return row[0] if row else "garmin"
-    finally:
-        session.close()
-
-
-def has_health_data(user_id: int = 0) -> bool:
-    """该用户是否有任何健康数据（用于判断是否首次同步）。"""
-    session = SessionLocal()
-    try:
-        n = session.execute(
-            select(func.count()).select_from(HealthDaily).where(HealthDaily.user_id == user_id)
-        ).scalar() or 0
-        return n > 0
     finally:
         session.close()
 
@@ -942,15 +909,6 @@ def get_user_by_phone(phone: str) -> Optional[dict]:
     session = SessionLocal()
     try:
         row = session.execute(select(User).where(User.phone == phone)).scalars().first()
-        return _orm_dict(row) if row else None
-    finally:
-        session.close()
-
-
-def get_user_by_id(user_id: int) -> Optional[dict]:
-    session = SessionLocal()
-    try:
-        row = session.execute(select(User).where(User.id == user_id)).scalars().first()
         return _orm_dict(row) if row else None
     finally:
         session.close()

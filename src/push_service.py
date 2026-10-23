@@ -14,11 +14,9 @@
 """
 
 import sys
-import os
 import json
 import datetime as dt
 from pathlib import Path
-from typing import Optional
 
 if sys.platform == "win32":
     try:
@@ -160,20 +158,6 @@ def send_push(
     except Exception as e:
         print(f"❌ 推送失败: {e}")
         return False
-
-
-def send_broadcast(
-    title: str,
-    body: str,
-    click_action: str = "dashboard",
-) -> int:
-    """向所有活跃设备发送推送。返回成功发送数量。"""
-    tokens = get_active_tokens()
-    success = 0
-    for token in tokens:
-        if send_push(token, title, body, click_action):
-            success += 1
-    return success
 
 
 # ── 训练提醒调度 ──

@@ -14,7 +14,7 @@ if sys.platform == "win32":
         sys.stderr.reconfigure(encoding="utf-8")
     except Exception:
         pass
-from typing import Optional, AsyncGenerator
+from typing import AsyncGenerator
 
 # 加载 .env：优先项目目录（服务器 ~/garmin-coach/.env），fallback 本地 study/.env
 ENV_PATH = Path(__file__).resolve().parent.parent / ".env"

@@ -134,18 +134,19 @@ garmin-coach/
 │   ├── server.py               # FastAPI 应用与全部路由
 │   ├── database.py             # 数据访问层（SQLAlchemy）
 │   ├── models.py               # ORM 模型
-│   ├── llm_client.py           # LLM 与 ASR 调用
-│   ├── safety_rules.py         # 安全档位规则引擎
+│   ├── llm_client.py           # 旧单轮 LLM 调用 + ASR（Agent 失败时的回退路径）
+│   ├── safety_rules.py         # 安全档位规则引擎（纯函数，有独立测试）
 │   ├── auth.py                 # 密码哈希 + JWT
-│   ├── push_service.py         # FCM 推送
-│   ├── garmin_server_sync.py   # 佳明同步（含 MFA）
+│   ├── push_service.py         # FCM 推送（未装 firebase-admin 时自动降级）
+│   ├── garmin_sync.py          # 佳明单日数据拉取（fetch_day）
+│   ├── garmin_server_sync.py   # 佳明同步编排（登录 / MFA / 落库）
 │   ├── coros_server_sync.py    # 高驰同步
-│   ├── weather_server.py       # 天气同步
-│   └── frontmatter.py          # Markdown 元数据解析（早期数据格式）
-├── static/                     # Web 仪表盘（单页）
-├── config/                     # 城市缓存；.tokens/ 为手表令牌（gitignored）
+│   └── weather_server.py       # 天气同步（和风，按经纬度）
+├── static/                     # Web 仪表盘（单文件，无构建）
+├── config/                     # .tokens/{user_id}/ 手表登录令牌（gitignored）
 ├── requirements.txt
 ├── .env.example
+├── deploy.py                   # 打包上传 + 备份 + 重启 + 验证（--check 只检查环境）
 └── deploy_config.example.py    # 部署脚本凭据模板
 ```
 
