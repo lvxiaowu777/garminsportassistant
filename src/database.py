@@ -1,6 +1,6 @@
 """
 数据库层 —— SQLAlchemy + MySQL 存储健康数据、活动记录、聊天历史。
-替代原 SQLite 实现。对外函数签名保持不变，内部换成 SQLAlchemy Session。
+MySQL 数据访问层。对外函数签名保持不变，内部用 SQLAlchemy Session。
 """
 import sys
 import os
@@ -34,9 +34,8 @@ if ENV_PATH.exists():
                 os.environ.setdefault(key.strip(), val.strip())
 
 from sqlalchemy import create_engine, delete, select, func, inspect, text
+from sqlalchemy.dialects.mysql import insert as _mysql_insert
 from sqlalchemy.orm import sessionmaker
-# 注意：这里不导入 sqlalchemy.dialects.mysql 的 insert —— 方言相关的语句统一由
-# 下面的 _insert_stmt / _upsert 按 engine.dialect.name 分派，避免绑定到单一数据库。
 
 from models import (
     Base, User, WatchBinding, HealthDaily, Activity, ChatHistory, DeviceToken,
@@ -49,8 +48,7 @@ DATABASE_URL = os.environ.get("DATABASE_URL", "")
 if not DATABASE_URL:
     raise RuntimeError(
         "未设置 DATABASE_URL 环境变量。\n"
-        "  服务器（MySQL）: mysql+pymysql://<user>:<pass>@localhost:3306/garmin_coach?charset=utf8mb4\n"
-        "  本地（SQLite）: sqlite:///./src/data/garmin_coach.db\n"
+        "  mysql+pymysql://<user>:<pass>@localhost:3306/garmin_coach?charset=utf8mb4\n"
         "写进项目根目录的 .env 即可（该文件已 gitignore）。"
     )
 
@@ -59,27 +57,16 @@ SessionLocal = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False
 
 
 # ═══════════════════════════════════════════════
-# 跨方言 SQL 辅助
+# 写入辅助（MySQL 专用）
 # ═══════════════════════════════════════════════
 #
-# 历史实现直接用了 sqlalchemy.dialects.mysql 的 insert，把整个项目钉死在 MySQL 上：
-# SQLite 下会抛 UnsupportedCompilationError（渲染不了 OnDuplicateClause），连启动都过不去。
-# 下面按 engine.dialect.name 分派，让本地开发和集成测试可以用 SQLite 跑。
-#
-# 同理 func.concat 是 MySQL 专有函数，SQLite / PostgreSQL 要用 || 拼接，
-# 所以「把一行追加到已有文本后面」也走辅助函数。
+# 只支持 MySQL：SQLite 已废弃（双方言分派是维护负担，且本地也能起 MySQL）。
+# 数据库方言由 `engine.dialect.name` 之外的地方不再做兼容。
 
 
 def _insert_stmt(model, values: dict):
-    """按方言构造 INSERT（尚未附加冲突处理）。"""
-    dialect = engine.dialect.name
-    if dialect == "sqlite":
-        from sqlalchemy.dialects.sqlite import insert as _ins
-    elif dialect == "postgresql":
-        from sqlalchemy.dialects.postgresql import insert as _ins
-    else:
-        from sqlalchemy.dialects.mysql import insert as _ins
-    return _ins(model).values(**values)
+    """构造 INSERT（尚未附加冲突处理）。"""
+    return _mysql_insert(model).values(**values)
 
 
 def _upsert(
@@ -89,20 +76,18 @@ def _upsert(
     update_keys: list[str] | None = None,
     do_nothing: bool = False,
 ):
-    """跨方言「插入或更新」。
+    """「插入或更新」（MySQL ``ON DUPLICATE KEY UPDATE``）。
 
-    conflict_cols : 冲突判定键。MySQL 靠 PRIMARY/UNIQUE 自动识别，这里主要给 SQLite 的
-                    ON CONFLICT 用。
+    conflict_cols : 冲突判定键。MySQL 靠 PRIMARY/UNIQUE 自动识别，这里只用于
+                    推导"除冲突键外要覆盖哪些列"。
     update_keys   : 冲突时要覆盖的列；None 表示「除冲突键外全部」。
     do_nothing    : True 表示冲突时保持原值（等价于 INSERT IGNORE）。
     """
     stmt = _insert_stmt(model, values)
 
     if do_nothing:
-        if engine.dialect.name == "mysql":
-            col = conflict_cols[0]
-            return stmt.on_duplicate_key_update(**{col: getattr(model, col)})
-        return stmt.on_conflict_do_nothing(index_elements=conflict_cols)
+        col = conflict_cols[0]
+        return stmt.on_duplicate_key_update(**{col: getattr(model, col)})
 
     keys = (
         update_keys
@@ -112,22 +97,7 @@ def _upsert(
     if not keys:
         return _upsert(model, values, conflict_cols, do_nothing=True)
 
-    if engine.dialect.name == "mysql":
-        return stmt.on_duplicate_key_update(**{k: stmt.inserted[k] for k in keys})
-    return stmt.on_conflict_do_update(
-        index_elements=conflict_cols,
-        set_={k: stmt.excluded[k] for k in keys},
-    )
-
-
-def _append_concat(*parts):
-    """字符串拼接的跨方言写法：MySQL 用 CONCAT()，其它方言用 ||。"""
-    if engine.dialect.name == "mysql":
-        return func.concat(*parts)
-    expr = parts[0]
-    for part in parts[1:]:
-        expr = expr + part
-    return expr
+    return stmt.on_duplicate_key_update(**{k: stmt.inserted[k] for k in keys})
 
 
 def _upsert_append(
@@ -140,10 +110,8 @@ def _upsert_append(
     """upsert，冲突时把 suffix 追加到 col_name 的既有值后面（日志式字段用）。"""
     stmt = _insert_stmt(model, values)
     column = getattr(model, col_name)
-    expr = _append_concat(func.coalesce(column, ""), "\n", suffix)
-    if engine.dialect.name == "mysql":
-        return stmt.on_duplicate_key_update(**{col_name: expr})
-    return stmt.on_conflict_do_update(index_elements=conflict_cols, set_={col_name: expr})
+    expr = func.concat(func.coalesce(column, ""), "\n", suffix)
+    return stmt.on_duplicate_key_update(**{col_name: expr})
 
 
 def init_db():

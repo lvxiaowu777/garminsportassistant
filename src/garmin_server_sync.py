@@ -1,5 +1,5 @@
 """
-服务器端 Garmin 同步 —— 登录（两步 MFA）+ 从官方拉数据写 SQLite。
+服务器端 Garmin 同步 —— 登录（两步 MFA）+ 从官方拉数据写 MySQL。
 
 和本地 garmin_sync.py 的区别：不写 markdown，直接写服务器数据库，
 按 user_id 隔离。token 存 config/.tokens/{user_id}/。
@@ -74,7 +74,7 @@ def has_token(user_id: int) -> bool:
 
 
 def sync_user_garmin(user_id: int, days: int = 7) -> tuple[int, str | None]:
-    """用已存 token 登录，拉最近 days 天数据写 SQLite。返回 (成功天数, error)。"""
+    """用已存 token 登录，拉最近 days 天数据写 MySQL。返回 (成功天数, error)。"""
     # 设备关闭则不同步
     from database import get_watch_enabled
     if not get_watch_enabled(user_id, "garmin"):

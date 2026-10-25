@@ -1,5 +1,5 @@
 """
-服务器版天气同步 —— 从和风拉天气直接写 SQLite。
+服务器版天气同步 —— 从和风拉天气直接写 MySQL。
 必须传入经纬度定位当地天气（面向多人使用，不做默认城市）。
 
 依赖（环境变量，由 llm_client 加载项目 .env 提供）：
@@ -118,7 +118,7 @@ def fetch_weather_by_coords(lon: float, lat: float, date_str: str) -> dict:
 
 def sync_weather_to_db(user_id: int, date_str: str | None = None,
                        lon: float | None = None, lat: float | None = None) -> dict | None:
-    """按经纬度拉当地天气并 upsert 到 SQLite。未定位返回 None。"""
+    """按经纬度拉当地天气并 upsert 到 MySQL。未定位返回 None。"""
     if not lon or not lat:
         return None
     date_str = date_str or dt.date.today().isoformat()

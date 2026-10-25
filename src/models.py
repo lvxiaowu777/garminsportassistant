@@ -1,6 +1,6 @@
 """
 SQLAlchemy ORM 模型 —— 对应 MySQL 表结构。
-从原 SQLite schema 1:1 复刻，字段类型映射到 MySQL。
+MySQL 表结构（早期从 SQLite schema 迁移而来）。
 """
 from datetime import datetime
 
