@@ -132,36 +132,30 @@ python -m garmin_coach.server
 ```
 garmin-coach/
 ├── garmin_coach/
-│   ├── api/                      # HTTP 层（薄壳）
-│   │   ├── deps.py               # 鉴权透传、静态目录、品牌配置
-│   │   ├── schemas.py            # 全部 Pydantic 请求模型
-│   │   └── routers/              # auth / watch / health / chat / user / push / system
-│   ├── agent/                    # Agent 循环（事件生成器）、会话管理、提示词
-│   │   ├── loop.py               # 模型 ↔ 工具循环，yield Agent 事件
-│   │   ├── events.py             # TextEvent / ToolCallEvent / DoneEvent…
-│   │   ├── conversation.py       # 消息本 + 序列化兜底
-│   │   ├── session.py            # SessionManager：生命周期 / 落库 / 恢复 / 回收
-│   │   ├── bridge.py             # 路由调用的入口（run_agent_chat / stream_agent_chat）
-│   │   └── prompts.py            # 唯一一份系统提示词（Agent 版 + 旧标记版）
-│   ├── tools/                    # 9 个工具 + 注册表
-│   ├── llm/                      # 传输层：base / openai / anthropic / config / factory
-│   ├── services/                 # 业务服务：safety / safety_rules / memory / trace / asr / clock
-│   ├── integrations/             # 外部服务：garmin_client / garmin_sync / weather / push
-│   ├── db/                       # 数据访问：database / models
-│   ├── auth.py                   # 密码哈希 + JWT
-│   ├── settings.py               # 运行时配置（env 可覆盖）
-│   └── server.py                 # app 组装 + main()
-├── static/                       # Web 仪表盘（单文件，无构建）
-├── scripts/                      # seed_dev_data / smoke_eval / migrate_session_id
-├── config/                       # .tokens/{user_id}/ 手表登录令牌（gitignored）
+│   ├── agent/                    # Agent 层（一个会话一个实例）
+│   │   ├── loop/                 # agent.py（事件生成器）· events.py
+│   │   ├── session/              # manager.py（生命周期/落库/恢复）· session.py
+│   │   ├── conversation/         # manager.py（消息本）· serialize.py
+│   │   ├── prompts/              # base.py（唯一一份提示词）
+│   │   ├── tools/                # base · registry · health（9 个工具）
+│   │   ├── llmclient/            # base · openai · anthropic · config · factory
+│   │   ├── memory/               # store · inject · extract · manage · outbox
+│   │   └── bridge.py             # 路由调用入口
+│   ├── api/                      # deps · schemas · routers（7 个）
+│   ├── services/                 # safety · safety_rules · trace · freshness · asr · clock
+│   ├── integrations/             # garmin_client · garmin_sync · weather · push
+│   ├── db/                       # database · models
+│   ├── auth.py · settings.py · server.py · __main__.py
+├── static/                       # Web 仪表盘（单文件，SSE 流式渲染）
+├── scripts/                      # seed_dev_data · smoke_eval · migrate_session_id
+├── config/                       # .tokens/{user_id}/ 手表令牌（gitignored）
 ├── docs/                         # CODE-MAP / PROJECT-OVERVIEW / REFACTOR
 ├── requirements.txt
-├── .env.example
-├── deploy.py                     # 打包上传 + 备份 + 重启 + 验证（--check 只检查环境）
-└── deploy_config.example.py      # 部署脚本凭据模板
+├── deploy.py · deploy_config.example.py
+└── .env.example
 ```
 
-> 启动方式不变：`python -m garmin_coach.server`（等价于 `python -m garmin_coach.server`）。
+> 启动方式：`python -m garmin_coach.server`（在项目根执行；取代原来的 `src/server.py`）。
 
 ---
 
