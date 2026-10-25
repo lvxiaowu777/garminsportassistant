@@ -15,6 +15,10 @@ src/data/*.db*
 src/data/*.sqlite
 *.db-journal
 
+# ───────────── 运行时生成物（用户语音、部署包）─────────────
+static/audio/
+deploy-*.tar.gz
+
 # ───────────── 日志 ─────────────
 logs/
 *.log
@@ -41,3 +45,6 @@ dist/
 .DS_Store
 Thumbs.db
 desktop.ini
+
+# 评测产物
+scripts/results/

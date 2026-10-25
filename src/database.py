@@ -33,7 +33,7 @@ if ENV_PATH.exists():
                 key, _, val = line.partition("=")
                 os.environ.setdefault(key.strip(), val.strip())
 
-from sqlalchemy import create_engine, select, func, inspect, text
+from sqlalchemy import create_engine, delete, select, func, inspect, text
 from sqlalchemy.orm import sessionmaker
 # 注意：这里不导入 sqlalchemy.dialects.mysql 的 insert —— 方言相关的语句统一由
 # 下面的 _insert_stmt / _upsert 按 engine.dialect.name 分派，避免绑定到单一数据库。
@@ -279,7 +279,7 @@ def get_standard_exercise_names() -> list[str]:
 # ═══════════════════════════════════════════════
 
 def upsert_health_daily(data: dict, user_id: int = 0, brand: str = "garmin"):
-    """插入或更新一天的完整健康数据。data 格式对齐 garmin_sync / coros_sync 的输出。"""
+    """插入或更新一天的完整健康数据。data 格式对齐 fetch_day 的嵌套输出。"""
     sleep = data.get("sleep") or {}
     recovery = data.get("recovery") or {}
     daily = data.get("daily") or {}
@@ -692,29 +692,58 @@ def _activity_row(obj) -> dict:
 # ═══════════════════════════════════════════════
 
 def add_chat(role: str, content: str, user_id: int = 0, msg_type: str = "text",
-             audio_url: str | None = None, duration_sec: int | None = None):
+             audio_url: str | None = None, duration_sec: int | None = None,
+             session_id: str | None = None):
     session = SessionLocal()
     try:
         session.add(ChatHistory(role=role, content=content, user_id=user_id,
+                                session_id=session_id,
                                 type=msg_type, audio_url=audio_url, duration_sec=duration_sec))
         session.commit()
     finally:
         session.close()
 
 
-def get_chat_history(limit: int = 50, user_id: int = 0, date_str: str = "") -> list[dict]:
+def get_chat_history(limit: int = 50, user_id: int = 0, date_str: str = "",
+                     session_id: str | None = None) -> list[dict]:
+    """取聊天历史。
+
+    - ``session_id`` 给了就**只取该会话**的消息（会话恢复用）；
+    - 不给则按日期取（前端历史列表用）。
+    """
     session = SessionLocal()
     try:
-        if not date_str:
-            date_str = dt.date.today().isoformat()  # 默认今天
-        q = select(ChatHistory).where(
-            ChatHistory.user_id == user_id,
-            ChatHistory.created_at.like(f"{date_str}%"),
-        )
+        q = select(ChatHistory).where(ChatHistory.user_id == user_id)
+        if session_id:
+            q = q.where(ChatHistory.session_id == session_id)
+        else:
+            if not date_str:
+                date_str = dt.date.today().isoformat()  # 默认今天
+            q = q.where(ChatHistory.created_at.like(f"{date_str}%"))
         rows = session.execute(
             q.order_by(ChatHistory.id.desc()).limit(limit)
         ).scalars().all()
         return [{c.name: getattr(r, c.name) for c in ChatHistory.__table__.columns} for r in reversed(rows)]
+    finally:
+        session.close()
+
+
+def clear_session_chat(session_id: str, user_id: int = 0) -> int:
+    """删除某个会话的全部消息（评测隔离 / 用户主动清空单会话时用）。
+
+    返回删除行数。注意：这是**物理删除**，会导致该会话无法再恢复。
+    """
+    session = SessionLocal()
+    try:
+        stmt = delete(ChatHistory).where(ChatHistory.session_id == session_id)
+        if user_id:
+            stmt = stmt.where(ChatHistory.user_id == user_id)
+        result = session.execute(stmt)
+        session.commit()
+        return result.rowcount or 0
+    except Exception:
+        session.rollback()
+        return 0
     finally:
         session.close()
 
@@ -774,39 +803,6 @@ def clear_chat_history(user_id: int = 0):
             ChatHistory.__table__.delete().where(ChatHistory.user_id == user_id)
         )
         session.commit()
-    finally:
-        session.close()
-
-
-# ═══════════════════════════════════════════════
-# 笔记
-# ═══════════════════════════════════════════════
-
-def add_note(date_str: str, text: str):
-    """追加笔记到某天（历史遗留：固定 user_id=0 / brand=garmin）。"""
-    now = dt.datetime.now().strftime("%H:%M")
-    entry = f"[{now}] {text}"
-    session = SessionLocal()
-    try:
-        row = session.execute(
-            select(HealthDaily.notes).where(
-                HealthDaily.date == date_str,
-                HealthDaily.user_id == 0,
-                HealthDaily.brand == "garmin",
-            )
-        ).scalars().first()
-        new_notes = (row + "\n" + entry) if row else entry
-        session.execute(
-            _upsert_append(
-                HealthDaily,
-                {"date": date_str, "user_id": 0, "brand": "garmin", "notes": new_notes},
-                ["date", "user_id", "brand"],
-                "notes",
-                entry,
-            )
-        )
-        session.commit()
-        return entry
     finally:
         session.close()
 
@@ -1086,7 +1082,7 @@ def select_watch(user_id: int, brand: str) -> bool:
         session.close()
 
 
-# ── 手表同步辅助（供 garmin_server_sync / coros_server_sync 使用） ──
+# ── 手表同步辅助（供 garmin_server_sync 使用；任何品牌的同步器都用这两个） ──
 
 def get_watch_enabled(user_id: int, brand: str) -> bool:
     """查某用户某品牌是否启用。未绑定时返回 True（视为不拦截）。"""
@@ -1194,11 +1190,42 @@ def get_global_activity_count(date_str: str) -> int:
 
 
 # ═══════════════════════════════════════════════
-# AI 每日训练计划（[PLAN] 标记落库）
+# AI 每日训练计划
 # ═══════════════════════════════════════════════
+#
+# 历史遗留：计划有两条写入路径，形状不一致——
+#   - 新 Agent 工具 save_plan 传的是**数组** [day, day, day]
+#   - 旧 [PLAN] 标记传的是**对象** {"days": [...]}
+# 而所有读取方都写 plan.get("days")，于是存了数组之后语音链路就会
+# AttributeError（C2）。这里统一在**写入口和读出口**都归一化成 {"days": [...]}，
+# 两条路径随便走都不会再有形状问题。
+
+
+def _normalize_plan(payload) -> dict | None:
+    """把计划归一化成 {"days": [...]}；无法识别时返回 None。"""
+    if isinstance(payload, str):
+        try:
+            payload = json.loads(payload)
+        except (json.JSONDecodeError, TypeError):
+            return None
+    if isinstance(payload, list):
+        return {"days": payload}
+    if isinstance(payload, dict):
+        if isinstance(payload.get("days"), list):
+            return payload
+        # 允许 {"plan": [...]} 这类变体，宽松兜一下
+        for key in ("plan", "days"):
+            if isinstance(payload.get(key), list):
+                return {**payload, "days": payload[key]}
+    return None
+
 
 def save_plan(user_id: int, plan_json: str, date_str: str = "") -> bool:
     """保存 AI 生成的 3 天计划。同一天覆盖（先删旧再插新）。"""
+    normalized = _normalize_plan(plan_json)
+    if normalized is None:
+        return False
+    plan_json = json.dumps(normalized, ensure_ascii=False)
     if not date_str:
         date_str = dt.date.today().isoformat()
     session = SessionLocal()
@@ -1220,7 +1247,11 @@ def save_plan(user_id: int, plan_json: str, date_str: str = "") -> bool:
 
 
 def get_latest_plan(user_id: int) -> Optional[dict]:
-    """取最近一次生成的计划，返回 plan dict（无则 None）。任何异常都返回 None，绝不影响主流程。"""
+    """取最近一次生成的计划，返回 {"days": [...]}（无则 None）。
+
+    历史数据里可能有数组形状，这里读出来也归一化一次，保证调用方
+    永远可以安全地写 plan.get("days")。异常一律返回 None，不影响主流程。
+    """
     session = SessionLocal()
     try:
         row = session.execute(
@@ -1231,10 +1262,7 @@ def get_latest_plan(user_id: int) -> Optional[dict]:
         ).scalars().first()
         if not row or not row.plan_json:
             return None
-        try:
-            return json.loads(row.plan_json)
-        except (json.JSONDecodeError, TypeError):
-            return None
+        return _normalize_plan(row.plan_json)
     except Exception:
         return None
     finally:

@@ -1,22 +1,23 @@
-"""OpenAI 兼容协议的流式客户端。
+"""OpenAI 兼容协议的流式客户端（官方 SDK）。
 
 DeepSeek / StepFun / 火山 Ark 都走这套协议，所以一个实现覆盖三家。
+结构对齐 MewCode：``Client(config)`` → ``stream(...)`` → 统一事件。
 
-关键点：**工具调用是分片吐的**。OpenAI 的 SSE 里 tool_calls 不是一次给全，
-而是每帧给你一段 `function.arguments` 的 JSON 字符串碎片，索引靠 `index` 对齐。
-本模块负责把这些碎片拼成完整对象，再以 ToolUseEnd 一次性交给上层 ——
-这样 Agent 不用自己处理「半个 JSON」。
+关键点：**工具调用是分片吐的**。SDK 的 delta 里 ``tool_calls`` 每帧只给
+一段 ``function.arguments`` 片段，索引靠 ``index`` 对齐。这里负责拼成完整
+对象，再以 ``ToolUseEnd`` 一次性交给上层 —— Agent 不用自己处理「半个 JSON」。
 """
 from __future__ import annotations
 
-import json
 from typing import Any, AsyncIterator
 
-import httpx
-
 from .base import (
+    AuthenticationError,
     LLMClient,
+    LLMError,
     MessageStop,
+    NetworkError,
+    RateLimitError,
     StreamError,
     StreamEvent,
     TextDelta,
@@ -25,26 +26,47 @@ from .base import (
     ToolUseEnd,
     ToolUseStart,
 )
+from .config import ProviderConfig
+
+
+def to_openai_tools(specs: list[dict[str, Any]] | None) -> list[dict[str, Any]]:
+    """协议中立的工具定义 → OpenAI function calling 格式。"""
+    if not specs:
+        return []
+    return [
+        {
+            "type": "function",
+            "function": {
+                "name": spec.get("name", ""),
+                "description": spec.get("description", ""),
+                "parameters": spec.get("parameters") or {"type": "object", "properties": {}},
+            },
+        }
+        for spec in specs
+    ]
 
 
 class OpenAIClient(LLMClient):
-    """OpenAI 兼容的 `POST <base_url>` 流式客户端。
+    """基于 ``openai.AsyncOpenAI`` 的客户端。
 
-    ``base_url`` 用的是**完整端点**（例如 ``https://api.deepseek.com/chat/completions``），
-    与旧 ``llm_client.py`` 里的 PROVIDERS 配置保持一致，避免再叠一层路径拼接。
+    ``config.base_url`` 是 **SDK base**（如 ``https://api.deepseek.com``），
+    不是完整端点；兼容旧配置里写成 ``.../chat/completions`` 的情况（自动裁掉）。
     """
 
-    def __init__(
-        self,
-        base_url: str,
-        api_key: str,
-        model: str,
-        timeout: float = 60.0,
-    ) -> None:
-        self._url = base_url
-        self._api_key = api_key
-        self._model = model
-        self._timeout = timeout
+    def __init__(self, config: ProviderConfig) -> None:
+        if not config.api_key:
+            raise AuthenticationError(f"{config.display_name} 的 API key 未配置")
+
+        from openai import AsyncOpenAI
+
+        base_url = config.base_url.rstrip("/")
+        for suffix in ("/chat/completions", "/v1/chat/completions"):
+            if base_url.endswith(suffix):
+                base_url = base_url[: -len(suffix)]
+                break
+
+        self.model = config.model
+        self._client = AsyncOpenAI(api_key=config.api_key, base_url=base_url or None)
 
     async def stream(
         self,
@@ -55,113 +77,97 @@ class OpenAIClient(LLMClient):
         temperature: float = 0.7,
         max_tokens: int = 4096,
     ) -> AsyncIterator[StreamEvent]:
-        if not self._api_key:
-            yield StreamError(f"{self._model} 的 API key 未配置")
-            return
+        from openai import (
+            APIConnectionError,
+            APIStatusError,
+            AuthenticationError as OpenAIAuthError,
+            RateLimitError as OpenAIRateLimitError,
+        )
 
         payload: dict[str, Any] = {
-            "model": self._model,
-            "messages": (
-                ([{"role": "system", "content": system}] if system else []) + messages
-            ),
+            "model": self.model,
+            "messages": ([{"role": "system", "content": system}] if system else []) + messages,
             "max_tokens": max_tokens,
             "temperature": temperature,
             "stream": True,
-            # 让服务端在最后一行带上 token 用量，Agent 用它记成本
             "stream_options": {"include_usage": True},
         }
         if tools:
-            payload["tools"] = tools
+            payload["tools"] = to_openai_tools(tools)
             payload["tool_choice"] = "auto"
 
-        headers = {
-            "Authorization": f"Bearer {self._api_key}",
-            "Content-Type": "application/json",
-        }
-
-        # index -> {"id", "name", "args"}，用于拼装分片的工具调用
         pending: dict[int, dict[str, str]] = {}
         started: set[int] = set()
         finish_reason = ""
         usage: dict[str, int] = {}
 
         try:
-            async with httpx.AsyncClient(timeout=self._timeout) as client:
-                async with client.stream(
-                    "POST", self._url, json=payload, headers=headers
-                ) as resp:
-                    if resp.status_code != 200:
-                        body = (await resp.aread()).decode("utf-8", "replace")
-                        yield StreamError(f"HTTP {resp.status_code}: {body[:500]}")
-                        return
+            stream = await self._client.chat.completions.create(**payload)
+            async for chunk in stream:
+                if chunk.usage:
+                    usage = {
+                        k: v
+                        for k, v in chunk.usage.model_dump().items()
+                        if isinstance(v, int)
+                    }
 
-                    async for raw in resp.aiter_lines():
-                        if not raw or not raw.startswith("data:"):
-                            continue
-                        data = raw[5:].strip()
-                        if not data or data == "[DONE]":
-                            continue
-                        try:
-                            chunk = json.loads(data)
-                        except json.JSONDecodeError:
-                            # 不中断整条流：厂商偶尔会插入非 JSON 的心跳行
-                            continue
+                choices = chunk.choices or []
+                if not choices:
+                    continue
+                choice = choices[0]
+                finish_reason = choice.finish_reason or finish_reason
+                delta = choice.delta
 
-                        if chunk.get("usage"):
-                            usage = {
-                                k: v
-                                for k, v in chunk["usage"].items()
-                                if isinstance(v, int)
-                            }
+                reasoning = getattr(delta, "reasoning_content", None)
+                if reasoning:
+                    yield ThinkingDelta(reasoning)
 
-                        choices = chunk.get("choices") or []
-                        if not choices:
-                            continue
-                        choice = choices[0]
-                        finish_reason = choice.get("finish_reason") or finish_reason
-                        delta = choice.get("delta") or {}
+                if delta.content:
+                    yield TextDelta(delta.content)
 
-                        reasoning = delta.get("reasoning_content")
-                        if reasoning:
-                            yield ThinkingDelta(reasoning)
+                for tc in delta.tool_calls or []:
+                    idx = tc.index if tc.index is not None else 0
+                    slot = pending.setdefault(idx, {"id": "", "name": "", "args": ""})
+                    if tc.id:
+                        slot["id"] = tc.id
 
-                        content = delta.get("content")
-                        if content:
-                            yield TextDelta(content)
+                    fn = tc.function
+                    if fn and fn.name:
+                        slot["name"] = fn.name
 
-                        for tc in delta.get("tool_calls") or []:
-                            idx = tc.get("index", 0)
-                            slot = pending.setdefault(
-                                idx, {"id": "", "name": "", "args": ""}
-                            )
-                            if tc.get("id"):
-                                slot["id"] = tc["id"]
+                    call_id = slot["id"] or f"call_{idx}"
+                    if idx not in started and slot["name"]:
+                        started.add(idx)
+                        yield ToolUseStart(call_id, slot["name"])
 
-                            fn = tc.get("function") or {}
-                            if fn.get("name"):
-                                slot["name"] = fn["name"]
+                    if fn and fn.arguments:
+                        slot["args"] += fn.arguments
+                        yield ToolUseDelta(call_id, fn.arguments)
 
-                            call_id = slot["id"] or f"call_{idx}"
-                            if idx not in started and slot["name"]:
-                                started.add(idx)
-                                yield ToolUseStart(call_id, slot["name"])
-
-                            fragment = fn.get("arguments")
-                            if fragment:
-                                slot["args"] += fragment
-                                yield ToolUseDelta(call_id, fragment)
-
-        except httpx.HTTPError as e:
+        except OpenAIAuthError as e:
+            yield StreamError(f"API key 无效：{e}")
+            return
+        except OpenAIRateLimitError as e:
+            yield StreamError(f"被限流：{e}")
+            return
+        except APIConnectionError as e:
             yield StreamError(f"网络错误：{e.__class__.__name__}: {e}")
             return
+        except APIStatusError as e:
+            yield StreamError(f"HTTP {e.status_code}: {e.message}")
+            return
+        except LLMError as e:
+            yield StreamError(str(e))
+            return
 
-        # 流结束：把拼好的工具调用逐个交出去
         for idx in sorted(pending):
             slot = pending[idx]
             call_id = slot["id"] or f"call_{idx}"
             arguments: dict[str, Any] = {}
             raw_args = slot["args"].strip()
             if raw_args:
+                import json
+
                 try:
                     parsed = json.loads(raw_args)
                     if isinstance(parsed, dict):

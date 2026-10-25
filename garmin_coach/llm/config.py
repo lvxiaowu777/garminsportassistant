@@ -22,7 +22,11 @@ except ImportError:  # pragma: no cover
 
 @dataclass(frozen=True)
 class ProviderConfig:
-    """一家 LLM 提供商的连接信息。"""
+    """一家 LLM 提供商的连接信息。
+
+    ``protocol`` 决定用哪个客户端：``openai``（兼容协议，覆盖 DeepSeek/StepFun/Ark）
+    或 ``anthropic``（Claude 原生消息格式）。
+    """
 
     key: str
     display_name: str
@@ -30,30 +34,55 @@ class ProviderConfig:
     model: str
     api_key: str
     max_tokens: int = 4096
+    protocol: str = "openai"
 
 
 def _build_providers() -> dict[str, ProviderConfig]:
+    # base_url 是 **SDK base**：官方 SDK 自己会拼 /chat/completions 或 /v1/messages
     return {
         "deepseek": ProviderConfig(
             key="deepseek",
             display_name="DeepSeek",
-            base_url="https://api.deepseek.com/chat/completions",
+            base_url=os.environ.get("DEEPSEEK_BASE_URL", "https://api.deepseek.com"),
             model=os.environ.get("DEEPSEEK_MODEL", "deepseek-v4-flash"),
             api_key=os.environ.get("DEEPSEEK_API_KEY", ""),
         ),
         "stepfun": ProviderConfig(
             key="stepfun",
             display_name="StepFun",
-            base_url="https://api.stepfun.com/v1/chat/completions",
+            base_url=os.environ.get("STEPFUN_BASE_URL", "https://api.stepfun.com/v1"),
             model=os.environ.get("STEPFUN_MODEL", "step-3.7-flash"),
             api_key=os.environ.get("STEPFUN_API_KEY", ""),
         ),
         "ark": ProviderConfig(
             key="ark",
             display_name="Ark",
-            base_url="https://ark.cn-beijing.volces.com/api/v3/chat/completions",
+            base_url=os.environ.get(
+                "ARK_BASE_URL", "https://ark.cn-beijing.volces.com/api/v3"
+            ),
             model=os.environ.get("ARK_MODEL", "deepseek-v3-250324"),
             api_key=os.environ.get("ARK_API_KEY", ""),
+        ),
+        "claude": ProviderConfig(
+            key="claude",
+            display_name="Claude",
+            base_url=os.environ.get("ANTHROPIC_BASE_URL", "https://api.anthropic.com"),
+            model=os.environ.get("ANTHROPIC_MODEL", "claude-sonnet-4-5-20250929"),
+            api_key=os.environ.get("ANTHROPIC_API_KEY", ""),
+            max_tokens=int(os.environ.get("ANTHROPIC_MAX_TOKENS", "4096")),
+            protocol="anthropic",
+        ),
+        # 兼容 Anthropic 协议的第三方端点（如 DeepSeek 的 /anthropic）
+        "deepseek-anth": ProviderConfig(
+            key="deepseek-anth",
+            display_name="DeepSeek (Anthropic)",
+            base_url=os.environ.get(
+                "DS_ANTHROPIC_BASE_URL", "https://api.deepseek.com/anthropic"
+            ),
+            model=os.environ.get("DS_ANTHROPIC_MODEL", "deepseek-flash"),
+            api_key=os.environ.get("DS_ANTHROPIC_API_KEY", ""),
+            max_tokens=int(os.environ.get("DS_ANTHROPIC_MAX_TOKENS", "4096")),
+            protocol="anthropic",
         ),
     }
 

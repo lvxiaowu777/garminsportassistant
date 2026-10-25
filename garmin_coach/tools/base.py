@@ -35,18 +35,20 @@ class Tool(ABC):
     description: ClassVar[str]
     params_model: ClassVar[type[BaseModel]]
 
-    def schema(self) -> dict[str, Any]:
-        """导出成 OpenAI function calling 需要的 JSON Schema。"""
+    def spec(self) -> dict[str, Any]:
+        """协议中立的工具定义：``name`` / ``description`` / ``parameters``。
+
+        这里**不拼任何厂商的格式**（OpenAI 的 ``{type:function,...}``、
+        Anthropic 的 ``input_schema``）—— 转换是各传输层自己的事。
+        加一家厂商时，工具层一行不用改。
+        """
         raw = self.params_model.model_json_schema()
-        # pydantic 会塞 title/$defs 等，OpenAI 侧不需要顶层 title
+        # pydantic 会塞顶层 title，各家都用不上
         raw.pop("title", None)
         return {
-            "type": "function",
-            "function": {
-                "name": self.name,
-                "description": self.description,
-                "parameters": raw,
-            },
+            "name": self.name,
+            "description": self.description,
+            "parameters": raw,
         }
 
     @abstractmethod

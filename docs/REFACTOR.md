@@ -144,23 +144,38 @@ Error(message)                   # 错误
 验收：`python -m compileall src garmin_coach` 通过；`TestClient` 冒烟
 `/`、`/api/llm/providers`、`/api/health/{safety,dashboard,recent/7}`、`/api/chat/dates` 全 200。
 
-### 阶段 4 —— 路由瘦身
+### 阶段 4 —— 路由瘦身 ✅（2026-10-24）
 
-把 `src/server.py` 按资源拆进 `garmin_coach/api/`：
+`src/server.py` 从 875 行收到约 110 行，只剩：路径引导 → 建 app + 日志 → `include_router` → 挂静态 → 启动。
+
+实际落地结构（和最初规划的差别：`asr` 并入 `chat`，另加了 `user` / `system`）：
 
 ```
-api/auth.py     /api/auth/*
-api/watch.py    /api/watch/*
-api/health.py   /api/health/*
-api/chat.py     /api/chat/*  +  /ws/chat
-api/push.py     /api/push/*
-api/asr.py      /api/asr
+garmin_coach/api/
+  deps.py             鉴权透传、静态目录、SUPPORTED_BRANDS/SYNCERS、logger
+                      （副作用：import 它 = 把 src/ 放进 sys.path）
+  schemas.py          全部 Pydantic 请求模型
+  routers/auth.py     /api/auth/*
+  routers/watch.py    /api/watch/*
+  routers/health.py   /api/health/*（含 record-training）
+  routers/chat.py     /api/chat/* + /api/asr + /ws/chat
+  routers/user.py     /api/user/profile
+  routers/push.py     /api/push/*
+  routers/system.py   / 、/api/llm/providers
+garmin_coach/services/
+  chat_context.py     build_chat_context（从 server.py 搬出）
+  markers.py          [RECORD] / [PLAN] 解析
+  clock.py            period_of(hour)
 ```
 
-原则：**路由函数体十行以内**，超过就是逻辑没下沉。
-`/api/chat` 改成走 Agent；其余 CRUD 路由只是换个位置，行为不许变。
+原则：**路由函数体十行以内**，超过就是逻辑没下沉。`/api/chat` 走 Agent；其余路由只换位置，行为不变。
 
-**验收标准**：Android App 不改一行代码，所有接口行为与重构前一致。
+**验收（已通过）**：
+
+- 路由集合与重构前**逐条一致**：36 条 API + `/ws/chat`，无缺失、无新增；
+- `compileall` 通过；`TestClient` 探活 10 个 GET 全 200；`/ws/chat` 可握手；
+- 真打一次 `POST /api/chat`（走 Agent）→ 200，1.3s，回复正常；
+- Android / Web 不需要改任何代码。
 
 ---
 

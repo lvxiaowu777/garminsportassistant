@@ -396,13 +396,21 @@ async def asr_transcribe(audio_bytes: bytes, filename: str = "audio.m4a") -> str
     api_key = PROVIDERS.get("stepfun", {}).get("api_key", "")
     if not api_key:
         return ""
+    # 按扩展名给正确的 MIME —— Web 端录的是 wav，Android 是 m4a
+    mime = {
+        ".wav": "audio/wav",
+        ".m4a": "audio/mp4",
+        ".mp3": "audio/mpeg",
+        ".webm": "audio/webm",
+        ".ogg": "audio/ogg",
+    }.get(Path(filename).suffix.lower(), "audio/m4a")
     try:
         async with httpx.AsyncClient(timeout=60.0) as client:
             resp = await client.post(
                 "https://api.stepfun.com/v1/audio/transcriptions",
                 headers={"Authorization": f"Bearer {api_key}"},
                 data={"model": "stepaudio-2.5-asr", "response_format": "json", "language": "zh"},
-                files={"file": (filename, audio_bytes, "audio/m4a")},
+                files={"file": (filename, audio_bytes, mime)},
             )
             if resp.status_code != 200:
                 return ""

@@ -14,7 +14,8 @@
 
 这个项目把两件事做掉了：
 
-1. **数据聚合**：定时从佳明（Garmin）和高驰（COROS）把数据拉下来，结构化存进数据库
+1. **数据聚合**：定时从佳明（Garmin）把数据拉下来，结构化存进数据库
+   （表结构按多品牌设计，目前只接了佳明）
 2. **AI 教练**：一个能自己查数据再回答问题的对话助手
 
 从使用者视角看，交互是这样的：
@@ -64,7 +65,6 @@
 ┌───────────────────────┴──────────────────────────────────┐
 │ 同步层  APScheduler 定时任务                               │
 │  ├── garminconnect（佳明官方 API，含 MFA）                 │
-│  ├── COROS 非官方 Web API                                 │
 │  └── 和风天气 API                                         │
 └──────────────────────────────────────────────────────────┘
 ```
@@ -82,7 +82,6 @@
 | `src/database.py` | 所有 SQLAlchemy 查询与写入 |
 | `src/models.py` | ORM 表定义 |
 | `src/garmin_server_sync.py` | 佳明数据同步 |
-| `src/coros_server_sync.py` | 高驰数据同步 |
 | `src/auth.py` | 密码哈希与 JWT |
 | `static/index.html` | Web 仪表盘 |
 
@@ -127,18 +126,23 @@ g.login(str(_token_dir(user_id)))    # 读 token 免密登录
 它依赖对象内部已经建立的会话状态。所以项目用 `_PENDING_MFA: dict[user_id, dict]`
 暂存这个对象，并用 `threading.Lock` 保护（FastAPI 的同步路由可能在不同线程上）。
 
-### 3.2 高驰（COROS）
+### 3.2 多品牌：能力留着，实现只做了佳明
 
-COROS 没有官方开放 API，也无可用的成熟开源库，项目里是用它的**非官方 Web API** 直接对接的
-（`src/coros_server_sync.py`）。登录方式是邮箱 + 区服，数据结构和佳明不完全一样，
-所以同步逻辑是两套独立的实现，但最终写进同一批表。
+数据模型从一开始就按**多品牌**设计（见 4.2 ①），所以接一个新品牌不需要动表结构和上层查询。
+品牌名白名单在 `src/server.py` 的 `SUPPORTED_BRANDS`，自动同步实现在 `SYNCERS` 字典
+（当前只有 `{"garmin": sync_user_garmin}`）；没进 `SYNCERS` 的品牌（如 apple / huawei /
+xiaomi）**只记录账号**，会出现在设备列表里但没有数据。
+
+> 历史：曾经接过高驰（`src/coros_server_sync.py`，走非官方 Web + Mobile 两套逆向接口，
+> Mobile 登录要 AES-128-CBC 加密、带设备指纹）。2026-10-23 按要求移除了这套实现，
+> 库里 `brand='coros'` 的历史数据与绑定记录保留。
 
 ### 3.3 同步怎么触发
 
 | 方式 | 说明 |
 |---|---|
-| 定时 | APScheduler，每天 **02:07** 同步佳明、**02:17** 同步高驰，各拉最近 7 天 |
-| 手动 | `POST /api/health/sync`，用户在 App 里点"同步" |
+| 定时 | APScheduler，每天 **02:07** 同步佳明，拉最近 7 天 |
+| 手动 | `POST /api/health/sync`，用户在 App 里点"同步"（当天首次 7 天，之后只同步当天） |
 | 关停 | 用户可以在设备页关掉某个品牌，`get_watch_enabled()` 为假时跳过 |
 
 同步流程（`sync_user_garmin`）：
@@ -204,9 +208,9 @@ device_tokens                      推送设备
 
 ### 4.2 三个设计决策
 
-**① 双品牌用 `brand` 字段隔离，而不是两套表**
+**① 多品牌用 `brand` 字段隔离，而不是每加一个品牌就加一套表**
 
-佳明和高驰的数据字段高度相似（都有睡眠、HRV、活动），不值得维护两套模型。
+不同品牌的数据字段高度相似（都有睡眠、HRV、活动），不值得维护两套模型。
 联合主键/唯一键都带上 `brand`：
 
 ```
@@ -801,7 +805,7 @@ GET  /api/health/dashboard → {today, recent_7d, charts, daily_stats, safety, d
 | 层 | 一句话 |
 |---|---|
 | 同步层 | 用 `garminconnect` 每天定时把官方数据拉进库，token 免密复用 |
-| 数据层 | SQLAlchemy 宽表 + 联合主键，双品牌隔离，全 upsert 幂等 |
+| 数据层 | SQLAlchemy 宽表 + 联合主键，`brand` 多品牌隔离，全 upsert 幂等 |
 | 工具层 | 9 个只读查询 + 2 个写入，全部绑定 user_id，失败转反馈 |
 | Agent 层 | ReAct 家族的 tool-calling 循环，最多 8 轮，token 用量累加 |
 | 传输层 | 把 3 家厂商的 SSE 归一化成 7 种事件，处理工具调用分片 |

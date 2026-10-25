@@ -1,23 +1,44 @@
 """HTTP 层与 Agent 之间的桥。
 
-``src/server.py`` 只调这里的一个函数，不关心 Agent 内部怎么转。
-这样将来换传输协议、加流式，都不用改路由。
-
-设计上保留了「工具调用结果」的完整留痕（``AgentResult.tool_calls``），
-路由层用它判断「这一轮有没有写训练记录」，比旧版靠正则解析 ``[RECORD]``
-标记可靠得多。
+路由只调这里的函数，不关心 Agent 内部怎么转。
+会话的取用/回收/落库交给 ``SessionManager``，这里只做「校验 provider + 注入 + 转发」。
 """
 from __future__ import annotations
 
 import logging
+from typing import AsyncIterator
 
 from garmin_coach.llm.config import get_provider
-from garmin_coach.llm.factory import create_client
-from garmin_coach.tools.health import build_default_registry
+from garmin_coach.settings import settings
 
-from .loop import Agent, AgentResult
+from .events import AgentEvent
+from .loop import AgentResult
+from .session import SessionManager, get_session_manager
 
 log = logging.getLogger(__name__)
+
+__all__ = [
+    "run_agent_chat",
+    "stream_agent_chat",
+    "get_session_manager",
+    "SessionManager",
+]
+
+
+def _check_provider(provider_name: str | None) -> None:
+    provider = get_provider(provider_name)
+    if not provider.api_key:
+        raise RuntimeError(f"{provider.display_name} 的 API key 未配置")
+
+
+def _injected_for(user_id: int) -> list[dict] | None:
+    """长期记忆注入（读失败就退化成空，不能影响对话）。"""
+    try:
+        from garmin_coach.services.memory import build_injected
+
+        return build_injected(user_id)
+    except Exception:  # noqa: BLE001
+        return None
 
 
 async def run_agent_chat(
@@ -26,25 +47,44 @@ async def run_agent_chat(
     *,
     history: list[dict] | None = None,
     provider_name: str | None = None,
-    max_turns: int = 8,
+    max_turns: int | None = None,
 ) -> AgentResult:
     """跑一轮带工具的对话，返回结构化结果。
 
-    抛 ``RuntimeError`` 表示「没有可用的 API key」，调用方应当据此决定
-    是回退旧实现还是直接把错误告诉用户。
+    - ``history``：只有会话**首次**使用时会被用来 hydrate（之后走内存）
+    - 抛 ``RuntimeError`` 表示没有可用 API key，调用方据此决定回退或报错
     """
-    provider = get_provider(provider_name)
-    if not provider.api_key:
-        raise RuntimeError(f"{provider.display_name} 的 API key 未配置")
-
-    llm = create_client(provider)
-    # 工具绑定 user_id：工具层没有 Depends 可用，身份必须在这里注入
-    registry = build_default_registry(user_id)
-
-    agent = Agent(
-        llm,
-        registry,
-        max_turns=max_turns,
-        max_tokens=provider.max_tokens,
+    _check_provider(provider_name)
+    return await get_session_manager().run_turn(
+        user_id,
+        message,
+        hydrate=history,
+        injected=_injected_for(user_id),
+        provider_name=provider_name,
+        max_turns=max_turns if max_turns is not None else settings.agent_max_turns,
     )
-    return await agent.run(message, history=history)
+
+
+async def stream_agent_chat(
+    message: str,
+    user_id: int = 0,
+    *,
+    history: list[dict] | None = None,
+    provider_name: str | None = None,
+    max_turns: int | None = None,
+) -> AsyncIterator[AgentEvent]:
+    """跑一轮并逐事件产出（SSE / WS 用）。
+
+    落库与 trace 由 ``SessionManager.stream_turn`` 统一负责，
+    所以流式路径和非流式路径的历史记录是一致。
+    """
+    _check_provider(provider_name)
+    async for event in get_session_manager().stream_turn(
+        user_id,
+        message,
+        hydrate=history,
+        injected=_injected_for(user_id),
+        provider_name=provider_name,
+        max_turns=max_turns if max_turns is not None else settings.agent_max_turns,
+    ):
+        yield event

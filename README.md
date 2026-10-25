@@ -1,7 +1,8 @@
 # Garmin Coach
 
-> 运动数据聚合 + AI 教练。把佳明（Garmin）和高驰（COROS）手表的数据汇总成健康档案，
+> 运动数据聚合 + AI 教练。把手表数据汇总成健康档案，
 > 由一个会调用工具的 AI 教练回答「今晚跑不跑」「我这周恢复得怎么样」这类问题。
+> 数据模型按**多品牌**设计（`brand` 列 + 设备单选），当前只实现了佳明（Garmin）。
 
 后端 FastAPI + SQLAlchemy；前端两个：原生 Android App（Jetpack Compose）和内置 Web 仪表盘。
 
@@ -12,7 +13,7 @@
 | 能力 | 说明 |
 |---|---|
 | 多用户账号 | 手机号注册/登录，JWT 鉴权，数据按 `user_id` 隔离 |
-| 手表绑定 | 佳明（账号密码 + MFA 两步验证）、高驰（邮箱 + 区服） |
+| 手表绑定 | 佳明（账号密码 + MFA 两步验证）；表结构多品牌就绪，其他品牌可先只记录账号 |
 | 数据同步 | 定时 + 手动触发，拉取睡眠 / HRV / 心率区间 / 每公里分段 |
 | 安全档位 | 硬规则引擎，把身体状态折算成 REST / EASY / MODERATE / HARD / LONG 五档上限 |
 | AI 教练 | 带工具调用的对话教练，按需查询数据而非一次性塞满上下文 |
@@ -38,7 +39,7 @@
 │  ├── llm/          LLM 客户端（多协议适配）    │
 │  ├── services/     业务逻辑（安全档位/同步）    │
 │  ├── db/           SQLAlchemy 模型与仓储       │
-│  └── sync/         佳明 / 高驰 数据拉取        │
+│  └── sync/         手表数据拉取（当前：佳明）  │
 └───────────────────┬──────────────────────────┘
                     │
            ┌────────▼────────┐
@@ -130,8 +131,18 @@ python src/server.py
 
 ```
 garmin-coach/
+├── garmin_coach/                 # 新架构（路由 / Agent / 工具 / 领域服务）
+│   ├── api/
+│   │   ├── deps.py               # 鉴权透传、静态目录、品牌配置（同时把 src/ 放进 sys.path）
+│   │   ├── schemas.py            # 全部 Pydantic 请求模型
+│   │   └── routers/              # auth / watch / health / chat / user / push / system
+│   ├── agent/                    # Agent 循环、对话历史、系统提示词
+│   ├── tools/                    # 9 个工具 + 注册表
+│   ├── llm/                      # LLM 传输层（7 种流事件）
+│   ├── services/                 # 安全档位、训练阶段、对话上下文、标记解析、时段
+│   └── db/                       # 数据访问（过渡期桥接 src/database.py）
 ├── src/
-│   ├── server.py               # FastAPI 应用与全部路由
+│   ├── server.py               # 薄入口：建 app + 挂路由 + 启动任务
 │   ├── database.py             # 数据访问层（SQLAlchemy）
 │   ├── models.py               # ORM 模型
 │   ├── llm_client.py           # 旧单轮 LLM 调用 + ASR（Agent 失败时的回退路径）
@@ -140,7 +151,6 @@ garmin-coach/
 │   ├── push_service.py         # FCM 推送（未装 firebase-admin 时自动降级）
 │   ├── garmin_sync.py          # 佳明单日数据拉取（fetch_day）
 │   ├── garmin_server_sync.py   # 佳明同步编排（登录 / MFA / 落库）
-│   ├── coros_server_sync.py    # 高驰同步
 │   └── weather_server.py       # 天气同步（和风，按经纬度）
 ├── static/                     # Web 仪表盘（单文件，无构建）
 ├── config/                     # .tokens/{user_id}/ 手表登录令牌（gitignored）

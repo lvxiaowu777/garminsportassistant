@@ -171,6 +171,8 @@ class ChatHistory(Base):
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     user_id = Column(Integer, nullable=False, default=0)
+    # 会话 id：u{user_id}-{YYYY-MM-DD}；老数据为 NULL，由迁移脚本回填
+    session_id = Column(String(48), nullable=True)
     role = Column(String(16), nullable=False)
     content = Column(Text, nullable=False)
     type = Column(String(16), default="text")       # text / voice
@@ -180,6 +182,7 @@ class ChatHistory(Base):
 
     __table_args__ = (
         Index("idx_chat_user", "user_id"),
+        Index("idx_chat_session", "user_id", "session_id", "id"),
     )
 
 
@@ -232,4 +235,97 @@ class DailyPlan(Base):
 
     __table_args__ = (
         Index("idx_plan_user", "user_id"),
+    )
+
+
+class UserMemory(Base):
+    """**长期记忆**：从会话里提炼出的事实/偏好/约束。
+
+    与会话消息的区别：消息是原话（7 天后删），这里是结论（长期保留、可覆盖）。
+    ``(user_id, kind, key)`` 唯一 —— 同一个 key 再写一次就是覆盖，天然去重。
+    """
+
+    __tablename__ = "user_memory"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(Integer, nullable=False)
+    kind = Column(String(24), nullable=False)   # injury / goal / preference / constraint / plan_decision
+    key = Column(String(64), nullable=False)    # 短标识，如 "左膝"、"目标成绩"
+    value = Column(Text, nullable=False)
+    confidence = Column(Float, default=1.0)
+    source_session = Column(String(48))         # 来自哪个会话（可追溯）
+    created_at = Column(String(32), default=_now_str)
+    updated_at = Column(String(32), default=_now_str)
+
+    __table_args__ = (
+        UniqueConstraint("user_id", "kind", "key", name="uq_memory_key"),
+        Index("idx_memory_user", "user_id", "kind"),
+    )
+
+
+class MemoryOutbox(Base):
+    """待提炼队列：会话结束时由 SessionManager 投一条，离线任务消费。
+
+    为什么不在请求路径里提炼：那会把"恢复会话"从 50ms 变成秒级，
+    而且提炼失败会传导给用户。
+    """
+
+    __tablename__ = "memory_outbox"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    session_id = Column(String(48), nullable=False)
+    user_id = Column(Integer, nullable=False)
+    status = Column(String(16), default="pending")  # pending / done / failed
+    attempts = Column(Integer, default=0)
+    created_at = Column(String(32), default=_now_str)
+    updated_at = Column(String(32), default=_now_str)
+
+    __table_args__ = (
+        Index("idx_outbox_status", "status", "id"),
+    )
+
+
+class AgentRun(Base):
+    """一次 Agent 运行（一轮用户消息）的汇总。
+
+    trace 表：评测、压测、演示都从这里取数，不再靠解析日志。
+    """
+
+    __tablename__ = "agent_runs"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(Integer, nullable=False)
+    session_id = Column(String(48), nullable=False)
+    provider = Column(String(24), default="")
+    turns = Column(Integer, default=0)
+    total_tokens = Column(Integer, default=0)
+    latency_ms = Column(Integer, default=0)
+    error = Column(Text)
+    created_at = Column(String(32), default=_now_str)
+
+    __table_args__ = (
+        Index("idx_runs_session", "session_id", "id"),
+        Index("idx_runs_user", "user_id", "id"),
+    )
+
+
+class AgentStep(Base):
+    """一次 run 里的单个步骤：LLM 调用或工具调用。"""
+
+    __tablename__ = "agent_steps"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    run_id = Column(Integer, nullable=False)
+    turn = Column(Integer, default=0)
+    kind = Column(String(8), default="llm")   # llm / tool
+    name = Column(String(64), default="")
+    latency_ms = Column(Integer, default=0)
+    is_error = Column(Integer, default=0)
+    chars = Column(Integer, default=0)
+    args_json = Column(Text)                   # 工具入参
+    result_text = Column(Text)                 # 工具结果（截断）
+    created_at = Column(String(32), default=_now_str)
+
+    __table_args__ = (
+        Index("idx_steps_run", "run_id", "id"),
     )

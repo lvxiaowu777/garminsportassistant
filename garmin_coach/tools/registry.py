@@ -33,9 +33,9 @@ class ToolRegistry:
     def names(self) -> list[str]:
         return sorted(self._tools)
 
-    def schemas(self) -> list[dict[str, Any]]:
-        """导出给 LLM 的工具清单。"""
-        return [tool.schema() for tool in self._tools.values()]
+    def specs(self) -> list[dict[str, Any]]:
+        """导出协议中立的工具清单（各传输层自己转成厂商格式）。"""
+        return [tool.spec() for tool in self._tools.values()]
 
     async def execute(self, name: str, arguments: dict[str, Any]) -> ToolResult:
         tool = self._tools.get(name)

@@ -16,7 +16,7 @@ APScheduler 02:07 / POST /api/health/sync
       → Garmin() + g.login(config/.tokens/{user_id})     读 token 免密登录
       → 循环 days 天：garmin_sync.fetch_day(g, date)      拉一天 → 嵌套 dict
       → database.upsert_health_daily(data, user_id, brand)  拍平 → upsert 宽表 + 活动
-  （高驰同理：coros_server_sync.sync_user_coros → _build_day → 同一个 upsert）
+  （多品牌走同一个 `upsert_health_daily`，只是 `brand` 不同；当前只有佳明有同步器）
 ```
 
 **② 一次对话**
@@ -49,35 +49,43 @@ GET /api/health/dashboard
   → get_dashboard()：今日 + 7 天趋势 + daily_stats
   → + compute_safety()   ← 与 AI 工具共用 services/safety 那一份
   → + datetime / period
-  → static/index.html renderDashboard() 画 9 张卡 + Chart.js 折线
+  → static/index.html renderDashboard() 画 9 张卡 + drawTrend() 原生 canvas 折线
 ```
 
 ---
 
 ## 二、接口层
 
-### `src/server.py`（876 行 · 36 个路由）
+### `src/server.py`（约 110 行 · 薄入口）
 
-应用装配 + 全部 HTTP/WS 入口。**这一层的目标形态是"薄壳"，但目前路由函数里仍有业务逻辑**
-（阶段 4 会把它们按资源拆进 `garmin_coach/api/`）。
+只做四件事：路径引导（`src/` + 项目根）→ 建 `FastAPI` + 配日志 → `include_router` →
+挂 `/static` + 启动（`init_db`、APScheduler 4 个 job、uvicorn）。**业务代码一行都不在这里。**
 
-| 区块 | 行 | 内容 |
-|---|---|---|
-| 路径引导 | 5-30 | 把 `src/` 和项目根塞进 `sys.path`（所以才能 `import garmin_coach`） |
-| 应用与日志 | 56-73 | `FastAPI()`、`logging.basicConfig`（只为让 Agent 的工具调用进日志） |
-| `build_chat_context` | 82-138 | **旧链路的上下文装配**：dashboard + safety + 档案 + 比赛倒计时 + 计划 |
-| 鉴权路由 | 159-224 | 注册（手机号 ≥11 位、密码 ≥6 位）、登录、`/api/auth/me`（回档案 + `profile_completed`） |
-| 手表路由 | 231-337 | 绑定（佳明走 MFA、高驰走逆向登录）、验证码第二步、解绑、开关、列表、单选 |
-| 健康路由 | 340-461 | dashboard、某天、最近 N 天、安全档位、单次活动、删/改活动、天气、同步、同步天气 |
-| 对话路由 | 463-663 | 历史/日期、ASR、语音消息、清空、`extract_training_record`、`extract_plan`、`POST /api/chat` |
-| 其他 | 665-766 | provider 列表、笔记、手动记训练、推送注册/状态/测试/触发 |
-| WebSocket | 769-842 | `/ws/chat`，逐 token 推送；`user_id` 取自**客户端消息体**（无 token 校验） |
-| 静态 | 844-856 | `/` 返回 `index.html`，`/static` 挂载 |
-| 启动 | 858-876 | `init_db()`、`init_firebase()`、APScheduler 注册 5 个 job、`uvicorn.run(8766)` |
+### `garmin_coach/api/`（路由层）
 
-**启动时的定时任务**（858-870）：`check_and_notify` 8:07/19:07、`sync_all_users` 2:07、
-`sync_all_coros_users` 2:17、`cleanup_old_chat` 3:07。**天气不在里面**，只能靠客户端调
-`/api/health/sync-weather`。
+| 文件 | 内容 |
+|---|---|
+| `deps.py` | 鉴权透传（`get_current_user`）、`STATIC_DIR`/`AUDIO_DIR`、`SUPPORTED_BRANDS`/`SYNCERS`、`log`。**副作用**：import 它会把 `src/` 放进 `sys.path`（所以每个路由模块第一句是 `from ..deps import ...`） |
+| `schemas.py` | 全部 Pydantic 请求模型（13 个，集中一处） |
+| `routers/auth.py` | 注册 / 登录 / `me` |
+| `routers/watch.py` | 绑定（Garmin MFA + 多品牌预留）、解绑、开关、列表、单选 |
+| `routers/health.py` | dashboard、某天、区间、安全档位、活动增删改、天气、同步、手动记录 |
+| `routers/chat.py` | 历史/日期、ASR、语音消息、清空、`POST /api/chat`、`/ws/chat` |
+| `routers/user.py` | `/api/user/profile` 读写 |
+| `routers/push.py` | 设备 token 注册 / 状态 / 测试 / 手动触发 |
+| `routers/system.py` | `/`（index.html）、`/api/llm/providers` |
+
+### `garmin_coach/services/`（领域逻辑）
+
+| 文件 | 内容 |
+|---|---|
+| `safety.py` | 安全档位 / 训练阶段（网页与 AI 工具共用，唯一实现） |
+| `chat_context.py` | `build_chat_context()`：旧单轮链路的上下文装配（语音/WS/回退用） |
+| `markers.py` | `[RECORD]` / `[PLAN]` 标记解析（旧链路用，B6 之后可删） |
+| `clock.py` | `period_of(hour)`：时段判断（dashboard 与上下文共用，避免两处漂移） |
+
+**启动时的定时任务**：`check_and_notify` 8:07/19:07、`sync_all_users`(佳明) 2:07、
+`cleanup_old_chat` 3:07。**天气不在里面**，只能靠客户端调 `/api/health/sync-weather`。
 
 ---
 
@@ -109,7 +117,7 @@ GET /api/health/dashboard
 | 写入 | 281-419 | `upsert_health_daily()` 把 `fetch_day` 的嵌套 dict 拍平成列（`None` 直接丢弃，不覆盖旧值）；`_upsert_activity` 写活动 |
 | 查询 | 426-687 | `get_active_brand`（第一个 enabled 的绑定）、`get_day`、`get_recent`、`get_dashboard`、`get_activity`、`get_weather`、`_activity_row`（ORM→dict + 解 JSON） |
 | 聊天 | 694-778 | `add_chat`、`get_chat_history`（**默认只查今天**）、`get_chat_dates`、`cleanup_old_chat`（连语音文件一起删）、`clear_chat_history` |
-| 笔记 | 785-810 | `add_note`（**固定 user_id=0**，历史遗留） |
+| ~~笔记~~ | — | `add_note` 已删除（2026-10-24），笔记改由 AI 从用户话里提炼 |
 | 训练记录 | 818-908 | `record_training`：力量训练同一天复用同一条 activity；`manual_{时间戳}` 当 id |
 | 用户/档案 | 920-1029 | 注册、按手机号/id 查、档案读写（JSON 列序列化）、`last_sync_date` |
 | 手表绑定 | 1036-1118 | bind/unbind/list/enabled/select（单选 = 只有一个是 1）、`get_watch_enabled`、`get_enabled_user_ids` |
@@ -174,19 +182,17 @@ HRV 比 7 日均值低 20%/10% → 官方 HRV 状态 → ACWR（≥1.8 到 REST�
   `fetch_day` + `upsert_health_daily`，**单天失败只打日志继续下一天**，返回成功天数。
 - `sync_all_users(days)`：`get_enabled_user_ids("garmin")` 循环。
 
-### `src/coros_server_sync.py`（553 行）
+### 多品牌预留位（当前只实现了佳明）
 
-最"脏"的一块：高驰没有官方 API，走两套逆向接口。
+**「多品牌」是能力，不是某个品牌的实现**：`health_daily` / `activities` 都有 `brand` 列，
+`watch_bindings` 按 `(user_id, brand)` 唯一，`get_active_brand()` 决定仪表盘读哪个品牌的数。
+品牌名白名单在 `server.py` 的 `SUPPORTED_BRANDS`，自动同步实现在 `SYNCERS` 字典里
+（现在只有 `{"garmin": sync_user_garmin}`）。加一个品牌 = 白名单加名字 + `SYNCERS` 加函数，
+其余（绑定 / 开关 / 单选 / 按品牌取数 / 同步路由）都不用改。
 
-- **Web API**（`teamcnapi/teameuapi/teamapi`）：`/account/login`（账号 + md5 密码，token 24h）、
-  `/analyse/dayDetail/query`（rhr / avgSleepHrv / trainingLoad / trainingLoadRatio）、
-  `/analyse/query`（vo2max / lthr / stamina）、`/activity/query`。
-- **Mobile API**（`apicn/apieu/api`）：睡眠只在这里有。登录凭据要 **AES-128-CBC 加密**
-  （key/IV 从 APK 逆向，`_mobile_encrypt`），带设备指纹 `yfheader`。
-- token 存 `config/.tokens/{user_id}/coros_auth.json`（web + mobile 两套）。
-- `_build_day()` 把 Coros 字段映射成和佳明同构的 `{recovery, fitness, sleep, activities}`，
-  所以两边最终写同一批列。
-- 注意：Coros 的日期参数要 `YYYYMMDD`（`_compact`），传带连字符的会报 `Service exceptions`。
+> 历史：曾经接过高驰（`coros_server_sync.py`，走非官方 Web + Mobile 两套逆向接口，
+> Mobile 登录要 AES 加密），已于 2026-10-23 按要求移除。库里 `brand='coros'` 的历史数据
+> 和各用户的高驰绑定记录没有动，只是不再有代码去写它。
 
 ### `src/weather_server.py`（127 行）
 
@@ -295,7 +301,7 @@ channel `training_reminder`），token 失效自动从库里移除；`check_and_
 | 静态骨架 | 258-333 | `#authView` 登录视图、`#appView`（三 tab + 顶栏 + 底部导航）、`#modal`、`#toast` |
 | ① 基础设施 | 336-393 | `state`（token/userId/chatMessages）、`$`/`$$`、`toast`、`esc`、`api()`（自动带 Bearer、401 回登录页、`/api/auth/*` 例外） |
 | ② 登录 / 退出 | 396-464 | 登录/注册切换、`logout()`、`enterApp()` |
-| ③ 仪表盘 | 466-758 | `loadDashboard()`（骨架屏）、`renderDashboard()` 按 9 个模块拼 HTML、`drawTrend()` 用 Chart.js、`renderQuickRow()` |
+| ③ 仪表盘 | 466-758 | `loadDashboard()`（骨架屏）、`renderDashboard()` 按 9 个模块拼 HTML、`drawTrend()` **原生 Canvas 手绘**（不依赖图表库；原注释说 Chart.js 的 jsdelivr CDN 国内连不上）、`renderQuickRow()` |
 | ④ 对话 | 761-833 | `renderChat()` 气泡、`loadChatHistory()`、`sendChat()` 乐观追加 + 等回复 |
 | ⑤ 训练记录 | 835-970 | `loadHistory()` 取 30 天、按日分组、`openActivityDetail()` / `renderActivityDetail()` |
 | ⑥ 弹窗 / 导航 / 事件 | 973-1021 | `openModal` / `closeModal`（点遮罩、Esc 关闭）、`switchTab`、输入框自增高、刷新按钮 |
@@ -323,7 +329,7 @@ channel `training_reminder`），token 失效自动从库里移除；`check_and_
 |---|---|---|
 | 1 | **旧链路读不到今日数据**：`build_context` 读 `today.recovery/sleep/fitness/weather`，但 `get_dashboard` 的 `today` 是**扁平列**（`hrv`/`sleep_hours`/…）→ 语音/WS 的 AI 只看到「今日运动」，看不到 HRV/睡眠/电量/天气 | `llm_client.py:219-248` vs `database.py:579-596` |
 | 2 | **计划 JSON 形状不一致**：`SavePlanTool` 存数组，旧 `[PLAN]` 存 `{"days": [...]}`；消费方都写 `plan.get("days")` → Agent 存过计划后，语音链路 500、`get_profile` 工具报错 | `tools/health.py:519` / `llm_client.py:275` |
-| 3 | `add_note` 固定写 `user_id=0`，多用户下笔记进公共桶（且 `/api/note` 没有客户端在调） | `database.py:785` |
+| 3 | ~~`add_note` 固定写 `user_id=0`~~ **已删除（2026-10-24）**：`/api/note` 与 `add_note` 都移除，以后笔记由 AI 从用户话里提炼入库 | — |
 | 4 | `check_and_notify` 用 `get_global_*`（不过滤用户）→ 按「任意用户」的数据决定给所有人发什么 | `database.py:1171` |
 | 5 | `get_chat_history` 默认只查**今天** → 跨天追问会丢上下文（`/api/chat` 传空 date） | `database.py:705` |
 | 6 | `/ws/chat` 的 `user_id` 取自客户端消息体，不校验 token | `server.py:769` |
