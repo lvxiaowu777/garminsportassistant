@@ -155,11 +155,17 @@ async def api_record_training(
     req: RecordTrainingRequest,
     user_id: int = Depends(get_current_user),
 ):
-    """手动记录一次训练（通过对话或手动输入）。"""
-    ok = record_training(user_id, req.type, req.duration_min, req.notes, req.date)
-    if ok:
+    """手动记录一次训练（幂等：重复提交不会产生重复记录）。"""
+    result = record_training(user_id, req.type, req.duration_min, req.notes, req.date)
+    if result.get("ok"):
+        detail = ""
+        if result.get("merged"):
+            detail = f"，合并动作：{'、'.join(result['merged'])}"
         return {
             "ok": True,
-            "message": f"已记录 {req.date or dt.date.today().isoformat()} {req.type}",
+            "message": f"已记录 {req.date or dt.date.today().isoformat()} {req.type}{detail}",
+            "created": result.get("created", False),
+            "merged": result.get("merged", []),
+            "added": result.get("added", []),
         }
     return {"ok": False, "message": "记录失败"}

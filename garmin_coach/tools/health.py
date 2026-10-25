@@ -489,19 +489,23 @@ class RecordTrainingTool(Tool):
     async def execute(self, params: BaseModel) -> ToolResult:
         p: RecordParams = params  # type: ignore[assignment]
         exercises = [e.model_dump(exclude_none=True) for e in (p.exercises or [])]
-        ok = await _in_thread(db_record_training, 
+        result = await _in_thread(db_record_training,
             self._user_id,
             p.train_type,
             p.duration_min,
             p.notes,
             exercises=exercises or None,
         )
-        if not ok:
+        if not result.get("ok"):
             return ToolResult("写入训练记录失败", is_error=True)
-        return ToolResult(
-            f"已记录：{p.train_type} {p.duration_min}min"
-            + (f"，{len(exercises)} 个动作" if exercises else "")
-        )
+
+        msg = f"已记录：{p.train_type} {p.duration_min}min"
+        if exercises:
+            msg += f"，{len(exercises)} 个动作"
+        merged = [n for n in result.get("merged", []) if n]
+        if merged:
+            msg += f"（{'、'.join(merged)} 今天已记过，已合并，未新增重复记录）"
+        return ToolResult(msg)
 
 
 class SavePlanTool(Tool):

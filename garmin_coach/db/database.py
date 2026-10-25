@@ -4,6 +4,7 @@
 """
 import sys
 import os
+import hashlib
 import json
 import datetime as dt
 from pathlib import Path
@@ -779,20 +780,54 @@ def clear_chat_history(user_id: int = 0):
 # 手动训练记录
 # ═══════════════════════════════════════════════
 
-def record_training(user_id: int, train_type: str, duration_min: int, notes: str,
-                    date_str: str = "", exercises: list | None = None) -> bool:
-    """记录一次手动训练（写入 activities + health_daily.notes + strength_sets）。
+def _training_key(train_type: str, notes: str, exercises: list | None) -> str:
+    """内容指纹：同一天、同类型、同内容的重复记录会落到同一个 activity_id 上。
 
-    力量训练一天只记一次：复用当天已有的 strength_training，追加动作明细。
+    为什么不用时间戳：模型重试、用户重复说一遍、网络重发都会产生"看上去一样"
+    的记录，时间戳每次不同 → 库里多一条。用内容指纹后，重复写入变成**更新**。
+    """
+    payload = json.dumps(
+        {
+            "t": train_type,
+            "n": (notes or "").strip(),
+            "e": sorted(
+                (str(e.get("name", "")) for e in (exercises or [])),
+            ),
+        },
+        ensure_ascii=False,
+        sort_keys=True,
+    )
+    return hashlib.sha1(payload.encode("utf-8")).hexdigest()[:10]
+
+
+def record_training(user_id: int, train_type: str, duration_min: int, notes: str,
+                    date_str: str = "", exercises: list | None = None) -> dict:
+    """记录一次手动训练（幂等：重复调用不会产生重复行）。
+
+    返回::
+
+        {"ok": True, "created": bool, "activity_id": str,
+         "added": [...], "merged": [...]}
+
+    - **力量训练**：一天一条 activity；动作按 ``(activity_id, name)`` 合并，
+      组数取大（先记 3 组、再说 4 组 → 记 4 组）；
+    - **跑步/骑行等**：``activity_id = manual_{日期}_{内容指纹}``，
+      同样内容重复记录就是 upsert 更新，不会多一条。
     """
     date_str = date_str or dt.date.today().isoformat()
     time_str = dt.datetime.now().strftime("%H:%M")
     brand = get_active_brand(user_id)
+    exercises = exercises or []
+    key = _training_key(train_type, notes, exercises)
+
     session = SessionLocal()
     try:
-        activity_id = f"manual_{int(dt.datetime.now().timestamp())}"
-        # 力量训练一天只记一次：复用当天已有的 strength_training
+        created = False
+        merged: list[str] = []
+        added: list[str] = []
+
         if train_type == "strength_training":
+            # 力量训练一天只一条：先找当天的，没有才建
             existing = session.execute(
                 select(Activity.activity_id).where(
                     Activity.user_id == user_id, Activity.date == date_str,
@@ -802,17 +837,24 @@ def record_training(user_id: int, train_type: str, duration_min: int, notes: str
             if existing:
                 activity_id = existing[0]
             else:
+                activity_id = f"manual_{date_str}_{key}"
                 session.execute(_insert_stmt(Activity, {
                     "date": date_str, "user_id": user_id, "brand": brand,
                     "activity_id": activity_id, "type": train_type,
                     "time": time_str, "duration_min": duration_min or 30,
                 }))
+                created = True
         else:
-            session.execute(_insert_stmt(Activity, {
-                "date": date_str, "user_id": user_id, "brand": brand,
-                "activity_id": activity_id, "type": train_type,
-                "time": time_str, "duration_min": duration_min or 30,
-            }))
+            activity_id = f"manual_{date_str}_{key}"
+            session.execute(_upsert(
+                Activity,
+                {
+                    "date": date_str, "user_id": user_id, "brand": brand,
+                    "activity_id": activity_id, "type": train_type,
+                    "time": time_str, "duration_min": duration_min or 30,
+                },
+                ["user_id", "brand", "activity_id"],
+            ))
 
         note = f"[{time_str}] 手动记录: {train_type} {duration_min}min {notes}".strip()
         session.execute(
@@ -824,22 +866,51 @@ def record_training(user_id: int, train_type: str, duration_min: int, notes: str
                 note,
             )
         )
-        # 力量训练结构化动作详情
-        for ex in exercises or []:
-            session.execute(_insert_stmt(StrengthSet, {
-                "activity_id": activity_id,
-                "name": ex.get("name", ""),
-                "sets": ex.get("sets"),
-                "reps": ex.get("reps"),
-                "reps_detail": ex.get("reps_detail"),
-                "weight_kg": ex.get("weight_kg"),
-                "equipment": ex.get("equipment"),
-            }))
+
+        # 动作明细：按 (activity_id, name) 合并，组数取大
+        for ex in exercises:
+            name = ex.get("name", "")
+            if not name:
+                continue
+            row = session.execute(
+                select(StrengthSet).where(
+                    StrengthSet.activity_id == activity_id,
+                    StrengthSet.name == name,
+                ).order_by(StrengthSet.id).limit(1)
+            ).scalars().first()
+
+            if row is None:
+                session.execute(_insert_stmt(StrengthSet, {
+                    "activity_id": activity_id,
+                    "name": name,
+                    "sets": ex.get("sets"),
+                    "reps": ex.get("reps"),
+                    "reps_detail": ex.get("reps_detail"),
+                    "weight_kg": ex.get("weight_kg"),
+                    "equipment": ex.get("equipment"),
+                }))
+                added.append(name)
+            else:
+                new_sets = ex.get("sets")
+                if new_sets and (row.sets or 0) < new_sets:
+                    row.sets = new_sets
+                for field in ("reps", "reps_detail", "weight_kg", "equipment"):
+                    value = ex.get(field)
+                    if value not in (None, ""):
+                        setattr(row, field, value)
+                merged.append(name)
+
         session.commit()
-        return True
+        return {
+            "ok": True,
+            "created": created,
+            "activity_id": activity_id,
+            "added": added,
+            "merged": merged,
+        }
     except Exception:
         session.rollback()
-        return False
+        return {"ok": False, "created": False, "activity_id": "", "added": [], "merged": []}
     finally:
         session.close()
 
