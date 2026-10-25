@@ -7,9 +7,9 @@
 设计要点：
 - **整目录打包上传**，不再维护一份容易过时的文件清单（旧脚本漏了
   garmin_coach/ 和 static/，因为清单是手写的）。
-- **不覆盖服务器的运行时数据**：.env / config/.tokens / src/data / logs /
+- **不覆盖服务器的运行时数据**：.env / config/.tokens / logs /
   static/audio 全部排除，这些是服务器上独有的。
-- **先备份再覆盖**：服务器上 src/ 会复制成 src.bak.<时间戳>，出问题可回滚。
+- **先备份再覆盖**：服务器上 garmin_coach/ 会复制成 garmin_coach.bak.<时间戳>，出问题可回滚。
 - **前置检查环境变量**：database.py 现在要求 DATABASE_URL 必须存在，
   缺了服务起不来。检查不通过就中止，不冒险重启。
 
@@ -30,7 +30,7 @@ SRC_DIR = os.path.dirname(os.path.abspath(__file__))
 REMOTE_DIR = "garmin-coach"
 
 # 要上传的目录和文件（相对项目根）
-INCLUDE_DIRS = ("src", "garmin_coach", "static")
+INCLUDE_DIRS = ("garmin_coach", "static")
 INCLUDE_FILES = ("requirements.txt",)
 
 # 不打包：这些是本地或服务器上各自独有的东西
@@ -108,7 +108,7 @@ def start_service(ssh) -> bool:
 
     start = (
         f"cd ~/{REMOTE_DIR} && "
-        "nohup setsid venv/bin/python src/server.py >> logs/server.log 2>&1 < /dev/null & "
+        "nohup setsid venv/bin/python -m garmin_coach.server >> logs/server.log 2>&1 < /dev/null & "
         "disown; echo LAUNCHED"
     )
     _in, out, _err = ssh.exec_command(start, timeout=30)
@@ -178,7 +178,7 @@ def deploy(ssh) -> bool:
     finally:
         sftp.close()
 
-    print("\n── 备份现有 src/ ──")
+    print("\n── 备份现有 garmin_coach/ ──")
     code, out = run(ssh, f"cd ~/{REMOTE_DIR} && cp -r src src.bak.{stamp} && echo BACKUP_OK")
     print(f"  {out}")
     if "BACKUP_OK" not in out:

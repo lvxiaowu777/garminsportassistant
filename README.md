@@ -105,7 +105,7 @@ JWT_SECRET=一串足够长的随机字符串
 ### 3. 启动
 
 ```bash
-python src/server.py
+python -m garmin_coach.server
 # → http://localhost:8766
 ```
 
@@ -151,8 +151,6 @@ garmin-coach/
 │   ├── auth.py                   # 密码哈希 + JWT
 │   ├── settings.py               # 运行时配置（env 可覆盖）
 │   └── server.py                 # app 组装 + main()
-├── src/
-│   └── server.py                 # 启动器（只剩它，负责 sys.path 后调 main）
 ├── static/                       # Web 仪表盘（单文件，无构建）
 ├── scripts/                      # seed_dev_data / smoke_eval / migrate_session_id
 ├── config/                       # .tokens/{user_id}/ 手表登录令牌（gitignored）
@@ -163,7 +161,7 @@ garmin-coach/
 └── deploy_config.example.py      # 部署脚本凭据模板
 ```
 
-> 启动方式不变：`python src/server.py`（等价于 `python -m garmin_coach.server`）。
+> 启动方式不变：`python -m garmin_coach.server`（等价于 `python -m garmin_coach.server`）。
 
 ---
 

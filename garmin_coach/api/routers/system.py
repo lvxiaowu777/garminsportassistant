@@ -6,7 +6,7 @@ from fastapi.responses import FileResponse
 
 from ..deps import STATIC_DIR
 
-from garmin_coach.llm.config import PROVIDERS
+from garmin_coach.agent.llmclient.config import PROVIDERS
 
 router = APIRouter(tags=["system"])
 

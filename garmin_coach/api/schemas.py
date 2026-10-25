@@ -81,7 +81,6 @@ class UpdateProfileRequest(BaseModel):
 
 class ChatRequest(BaseModel):
     message: str
-    provider: str = ""
 
 
 # ── 推送 ──

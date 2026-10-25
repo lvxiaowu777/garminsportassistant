@@ -7,12 +7,11 @@
 现在拆成「共享段落 + 两种输出约定」：
 
 ```
-IDENTITY / TIME_SENSE / SAFETY / PHASE / DECISION / OBSERVATIONS / STYLE   ← 共享
-TOOL_GUIDE（调工具）        → build_system_prompt()     给 Agent
-MARKER_GUIDE（吐标记）      → build_legacy_prompt()     给旧单轮链路（待删）
+IDENTITY / TIME_SENSE / SAFETY / PHASE / DECISION / OBSERVATIONS / STYLE   ← 领域规则（共享）
+TOOL_GUIDE / TOOL_RECORD / TOOL_PLAN  → build_system_prompt()  给 Agent
 ```
 
-旧链路删掉后，``MARKER_GUIDE`` 和 ``build_legacy_prompt`` 一起删即可。
+旧的「吐 [RECORD]/[PLAN] 标记」那套已经删了（链路已下线），只保留调工具这一种输出约定。
 """
 from __future__ import annotations
 
@@ -128,61 +127,11 @@ TOOL_PLAN = """## 生成未来计划
 计划必须遵守【训练阶段】+【决策规则】+【安全档位硬约束】。
 """
 
-# ── 输出约定 B：旧单轮链路（吐标记，待删）──
-
-LEGACY_DATA_NOTE = """## 数据获取方式
-本次请求的数据（安全档位、今日、最近几天、计划、标准动作名）已附在下面，
-直接基于这些数据回答，不要编造数据里没有的信息。
-"""
-
-MARKER_RECORD = """## 记录训练（重要）
-用户可能口头描述一次训练，比如"今天练了力量，深蹲5组、卧推3组"，或"刚跑了5公里"。
-识别到训练描述时，回复末尾必须另起一行附一个记录标记（系统会自动解析保存）。
-
-标记格式（严格照抄，JSON 不能带换行）：
-[RECORD]{"type":"strength_training","notes":"深蹲5组、卧推3组","duration_min":40,"exercises":[{"name":"深蹲","sets":5,"reps":10,"equipment":"杠铃"},{"name":"二头弯举","sets":4,"reps_detail":"15/10/10/10","equipment":"哑铃 10kg"}]}[/RECORD]
-
-规则：
-- type：力量=strength_training，跑步=running，骑行=cycling，游泳=swimming
-- notes：训练内容。力量写动作和组数（多个动作用顿号分隔），动作名统一用下方「标准动作名列表」里的标准名；跑步/骑行写距离和配速
-- exercises：力量训练必须带，数组。每项字段：
-  - name=标准动作名；sets=组数
-  - reps=每组次数（所有组相同时才用）；若每组次数不同，改用 reps_detail（与 reps 二选一）
-  - weight_kg=重量；equipment=器械（用户说多重就写"哑铃 10kg"）
-  - 用户没说的字段省略；跑步/骑行不用 exercises
-- duration_min：时长分钟。用户没说就按常识估（力量 30-60，跑步按距离估）
-- 只有明确是"我练了/我做了/刚跑完"这类训练陈述才附标记；问建议、看数据、普通聊天都不要附
-- 标记后面不要再有任何文字
-"""
-
-MARKER_PLAN = """## 生成未来计划（[PLAN] 标记）
-当用户问"未来几天怎么练""帮我安排一下""接下来三天怎么练"等，或主动建议未来安排时：
-- 先用自然语言把计划说清楚（像朋友聊天，说人话，别甩 JSON）
-- 然后另起一行附一个 [PLAN] 标记（系统自动解析保存，用户界面不显示）
-
-[PLAN] 格式（严格照抄，JSON 不能带换行）：
-[PLAN]{"days":[{"date":"YYYY-MM-DD","day":"今天/明天/后天","run":"类型+距离+强度，如 easy 6km 心率<140，休息写 rest","strength":"力量安排，如 核心20min，没有写空字符串","note":"当天注意事项"}]}[/PLAN]
-
-规则：
-- 生成未来 3 天（今天/明天/后天）
-- run：简洁中文描述（easy/tempo/long/intervals/recovery/rest + 距离 + 强度/心率要求）
-- strength：力量安排描述，没有就写 ""
-- note：当天特别注意事项（天气/身体/配速提醒），没有就写 ""
-- 计划必须遵守上面的【训练阶段】+【决策规则】+【安全档位硬约束】
-- 只有用户明确要"未来计划"时才附 [PLAN]；普通聊天、问数据、问单次建议都不附
-- [PLAN] 标记后面不要再有任何文字
-"""
-
 # ── 组装 ──
 
 BASE_PROMPT = "\n".join(
     [IDENTITY, TOOL_GUIDE, TIME_SENSE, SAFETY, PHASE, DECISION,
      OBSERVATIONS, TOOL_RECORD, TOOL_PLAN, STYLE]
-)
-
-LEGACY_PROMPT = "\n".join(
-    [IDENTITY, LEGACY_DATA_NOTE, TIME_SENSE, SAFETY, PHASE, DECISION,
-     OBSERVATIONS, MARKER_RECORD, MARKER_PLAN, STYLE]
 )
 
 
@@ -215,9 +164,3 @@ def build_system_prompt(now: dt.datetime | None = None) -> str:
     return BASE_PROMPT + _time_block(now)
 
 
-def build_legacy_prompt(now: dt.datetime | None = None) -> str:
-    """旧单轮链路用的提示词（吐 [RECORD]/[PLAN] 标记）。
-
-    等语音/WS 接进 Agent 后，这个函数连同 ``MARKER_*`` 一起删。
-    """
-    return LEGACY_PROMPT + _time_block(now)

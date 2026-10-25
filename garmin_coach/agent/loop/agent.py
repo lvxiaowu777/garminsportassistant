@@ -20,7 +20,7 @@ import logging
 import time
 from typing import Any, AsyncIterator
 
-from garmin_coach.llm.base import (
+from garmin_coach.agent.llmclient.base import (
     LLMClient,
     MessageStop,
     StreamError,
@@ -28,9 +28,9 @@ from garmin_coach.llm.base import (
     ThinkingDelta,
     ToolUseEnd,
 )
-from garmin_coach.tools.registry import ToolRegistry
+from garmin_coach.agent.tools.registry import ToolRegistry
 
-from .conversation import ConversationManager
+from ..conversation import ConversationManager
 from .events import (
     AgentEvent,
     AgentResult,
@@ -43,7 +43,7 @@ from .events import (
     ToolCallRecord,
     ToolResultEvent,
 )
-from .prompts import build_system_prompt
+from ..prompts import build_system_prompt
 
 log = logging.getLogger(__name__)
 

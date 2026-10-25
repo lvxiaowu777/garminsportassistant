@@ -20,12 +20,13 @@ from collections.abc import AsyncIterator, Callable
 from dataclasses import dataclass, field
 from typing import Any
 
-from garmin_coach.llm.config import get_provider
-from garmin_coach.llm.factory import get_shared_client
+from garmin_coach.agent.llmclient.config import get_provider
+from garmin_coach.agent.llmclient.factory import get_shared_client
 from garmin_coach.settings import settings
-from garmin_coach.tools.health import build_default_registry
+from garmin_coach.agent.tools.health import build_default_registry
 
-from .loop import Agent, AgentResult
+from ..loop import Agent, AgentResult
+from .session import Session, _current_loop_id, session_id_for
 
 log = logging.getLogger(__name__)
 
@@ -60,7 +61,7 @@ def _default_persister(session_id: str, user_id: int, role: str, content: str) -
 
 def _default_on_close(user_id: int, session_id: str) -> None:
     """会话回收 → 投一条长期记忆提炼待办（离线消费）。"""
-    from garmin_coach.services.memory import enqueue_session
+    from garmin_coach.agent.memory import enqueue_session
 
     enqueue_session(user_id, session_id)
 
@@ -70,42 +71,6 @@ def _default_tracer(**kwargs: Any) -> None:
     from garmin_coach.services.trace import save_run
 
     save_run(**kwargs)
-
-
-def session_id_for(user_id: int, day: dt.date | None = None) -> str:
-    """会话 id 规则：一天一个 —— ``u1001-2026-10-25``。"""
-    return f"u{user_id}-{(day or dt.date.today()).isoformat()}"
-
-
-def _current_loop_id() -> int:
-    """当前事件循环的 id；没有 loop 时返回 0。"""
-    try:
-        return id(asyncio.get_running_loop())
-    except RuntimeError:
-        return 0
-
-
-@dataclass
-class Session:
-    """一个会话的内存态。"""
-
-    session_id: str
-    user_id: int
-    agent: Agent
-    provider: str = ""
-    created_at: float = field(default_factory=time.time)
-    last_active: float = field(default_factory=time.time)
-    turns: int = 0
-    #: 创建时所在的事件循环。跨 loop 复用同一个 Agent 会拿到已关闭的 loop
-    #: （测试里每个请求一个 loop，uvicorn 生产环境只有一个）。
-    loop_id: int = 0
-
-    def touch(self) -> None:
-        self.last_active = time.time()
-
-    @property
-    def idle_seconds(self) -> float:
-        return time.time() - self.last_active
 
 
 class SessionManager:
@@ -242,7 +207,7 @@ class SessionManager:
         ``persist_user=False``：调用方自己已经写过 user 消息（如语音消息要带
         audio_url / type=voice），避免重复插入。
         """
-        from .events import DoneEvent
+        from ..loop.events import DoneEvent
 
         session = self.get(
             user_id,
@@ -284,7 +249,7 @@ class SessionManager:
         persist_user: bool = True,
     ) -> AgentResult:
         """跑一轮并返回最终结果（非流式接口用）。"""
-        from .events import DoneEvent, TextEvent
+        from ..loop.events import DoneEvent, TextEvent
 
         result: AgentResult | None = None
         async for event in self.stream_turn(

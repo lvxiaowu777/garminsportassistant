@@ -42,12 +42,12 @@ def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser()
     p.add_argument("--user", type=int, default=1001)
     p.add_argument("--repeat", type=int, default=1)
-    p.add_argument("--provider", default="", help="provider 名（默认用配置里的默认）")
+    p.add_argument("--provider", default="", help="覆盖 LLM_PROVIDER（后端配置项）")
     p.add_argument("--out", default="")
     return p.parse_args()
 
 
-async def run_all(user_id: int, repeat: int, provider: str = "") -> list[dict]:
+async def run_all(user_id: int, repeat: int) -> list[dict]:
     from garmin_coach.agent.bridge import run_agent_chat
     from garmin_coach.agent.session import get_session_manager
 
@@ -59,9 +59,7 @@ async def run_all(user_id: int, repeat: int, provider: str = "") -> list[dict]:
             manager.reset(user_id, wipe_memory=True)
             t0 = time.perf_counter()
             try:
-                result = await run_agent_chat(
-                    question, user_id, history=None, provider_name=provider or None
-                )
+                result = await run_agent_chat(question, user_id, history=None)
                 elapsed = int((time.perf_counter() - t0) * 1000)
                 row = {
                     "case": case_id,
@@ -126,10 +124,13 @@ def summarize(rows: list[dict]) -> dict:
 def main() -> None:
     args = parse_args()
     stamp = dt.datetime.now().strftime("%Y%m%d-%H%M")
+    if args.provider:
+        # provider 现在由后端配置决定；命令行参数只作临时覆盖
+        os.environ["LLM_PROVIDER"] = args.provider
     out = Path(args.out) if args.out else ROOT / "scripts" / "results" / f"smoke-{stamp}.jsonl"
     out.parent.mkdir(parents=True, exist_ok=True)
 
-    rows = asyncio.run(run_all(args.user, args.repeat, args.provider))
+    rows = asyncio.run(run_all(args.user, args.repeat))
     with out.open("w", encoding="utf-8") as f:
         for row in rows:
             f.write(json.dumps(row, ensure_ascii=False) + "\n")

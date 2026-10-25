@@ -56,6 +56,9 @@ class Settings:
     max_sessions: int = 200                # 内存里最多驻留多少个会话（LRU）
     session_reap_interval_seconds: int = 300  # 后台扫描间隔（秒）
 
+    # ── LLM ──
+    llm_provider: str = "deepseek"     # 后端管理员决定用哪家（LLM_PROVIDER）
+
     # ── Agent ──
     agent_max_turns: int = 8               # 一轮对话最多几次「模型 ↔ 工具」
     agent_temperature: float = 0.7
@@ -69,6 +72,7 @@ class Settings:
 
 def load_settings() -> Settings:
     return Settings(
+        llm_provider=os.environ.get("LLM_PROVIDER", "deepseek").strip() or "deepseek",
         session_ttl_seconds=_int("SESSION_TTL_SECONDS", 3600),
         max_sessions=_int("MAX_SESSIONS", 200),
         session_reap_interval_seconds=_int("SESSION_REAP_INTERVAL_SECONDS", 300),

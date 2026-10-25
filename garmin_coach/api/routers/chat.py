@@ -31,7 +31,7 @@ from fastapi.responses import StreamingResponse
 from ..deps import AUDIO_DIR, get_current_user, log
 from ..schemas import ChatRequest
 
-from garmin_coach.agent.events import DoneEvent, TextEvent, to_sse
+from garmin_coach.agent.loop.events import DoneEvent, TextEvent, to_sse
 from garmin_coach.agent.session import session_id_for
 from garmin_coach.db.database import (
     add_chat,
@@ -147,11 +147,7 @@ async def api_chat(req: ChatRequest, user_id: int = Depends(get_current_user)):
     from garmin_coach.agent.bridge import run_agent_chat
 
     try:
-        result = await run_agent_chat(
-            req.message,
-            user_id,
-            provider_name=req.provider,
-        )
+        result = await run_agent_chat(req.message, user_id)
     except RuntimeError as exc:  # 没有可用 API key
         raise HTTPException(503, str(exc)) from exc
 
@@ -179,9 +175,7 @@ async def api_chat_stream(req: ChatRequest, user_id: int = Depends(get_current_u
 
     async def gen():
         try:
-            async for event in stream_agent_chat(
-                req.message, user_id, provider_name=req.provider
-            ):
+            async for event in stream_agent_chat(req.message, user_id):
                 payload = json.dumps(to_sse(event), ensure_ascii=False)
                 yield f"data: {payload}\n\n"
         except Exception as exc:  # noqa: BLE001 - 流里的错误也要能传到前端
@@ -225,7 +219,7 @@ async def ws_chat(ws: WebSocket):
         while True:
             data = json.loads(await ws.receive_text())
             message = (data.get("message") or "").strip()
-            provider = data.get("provider") or None
+            # provider 由后端配置决定（LLM_PROVIDER），客户端传什么都不用
             user_id = data.get("user_id", 0)
 
             if not message:
@@ -237,9 +231,7 @@ async def ws_chat(ws: WebSocket):
             ))
 
             reply_parts: list[str] = []
-            async for event in stream_agent_chat(
-                message, user_id, provider_name=provider
-            ):
+            async for event in stream_agent_chat(message, user_id):
                 if isinstance(event, TextEvent):
                     reply_parts.append(event.text)
                     await ws.send_text(json.dumps(

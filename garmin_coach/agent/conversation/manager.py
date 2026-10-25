@@ -11,6 +11,8 @@ from __future__ import annotations
 import json
 from typing import Any
 
+from .serialize import serialize_messages
+
 
 class ConversationManager:
     """一次会话的消息本。
@@ -56,62 +58,8 @@ class ConversationManager:
     # ── 序列化（发给 LLM 前必须过这一关）──
 
     def serialize(self) -> list[dict[str, Any]]:
-        """把 messages 规整成**可直接 JSON 化**的协议合法形态。
-
-        返回值就是最终 payload 里的 ``messages`` 数组（调用方再拼 system /
-        注入块），不再维护一份"副本"概念 —— 这里产出的直接就是线上格式。
-
-        防的是这类事故：
-        - 落库丢过工具结果 → assistant 里有 tool_calls 但没有配对的 tool 消息
-          （OpenAI 直接 400）。处理：**删掉这条 tool_calls 请求**，只留它的正文；
-          正文也为空就整条丢弃。
-        - 相邻同角色消息（崩溃留下的半条记录）→ 合并成一条。
-        - 空内容 → 丢掉。
-
-        注意：这里**不修改** ``self.messages``，返回的是副本，方便重试时复算。
-        """
-        out: list[dict[str, Any]] = []
-        pending_ids: set[str] = set()   # 已发出、还没收到结果的 tool_call_id
-
-        for idx, msg in enumerate(self.messages):
-            role = msg.get("role")
-            content = (msg.get("content") or "").strip()
-
-            # 工具结果：只保留属于「上一批 tool_calls」的，按 id 逐个消费
-            if role == "tool":
-                call_id = msg.get("tool_call_id")
-                if call_id in pending_ids:
-                    out.append({"role": "tool", "tool_call_id": call_id, "content": content})
-                    pending_ids.discard(call_id)
-                continue
-
-            calls = msg.get("tool_calls") or []
-            if role == "assistant" and calls:
-                # 往后看紧邻的连续 tool 消息，必须覆盖全部 call_id，否则整批降级成纯文本
-                need = {tc.get("id") for tc in calls}
-                have: set[str] = set()
-                j = idx + 1
-                while j < len(self.messages) and self.messages[j].get("role") == "tool":
-                    have.add(self.messages[j].get("tool_call_id"))
-                    j += 1
-                if not need <= have:
-                    if content:
-                        out.append({"role": "assistant", "content": content})
-                    continue
-                out.append({"role": "assistant", "content": msg.get("content"), "tool_calls": calls})
-                pending_ids = set(need)
-                continue
-
-            if not content:
-                continue
-            if out and out[-1].get("role") == role and not out[-1].get("tool_calls"):
-                out[-1]["content"] = f"{out[-1]['content']}\n{content}"
-            else:
-                out.append({"role": role, "content": content})
-
-        return out
-
-    # ── 写入 ──
+        """规整成可直接 JSON 化的协议合法形态（实现在 serialize.py）。"""
+        return serialize_messages(self.messages)
 
     def add_user(self, text: str) -> None:
         self.messages.append({"role": "user", "content": text})

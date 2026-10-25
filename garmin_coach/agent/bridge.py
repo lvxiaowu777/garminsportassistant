@@ -8,10 +8,10 @@ from __future__ import annotations
 import logging
 from typing import AsyncIterator
 
-from garmin_coach.llm.config import get_provider
+from garmin_coach.agent.llmclient.config import get_provider
 from garmin_coach.settings import settings
 
-from .events import AgentEvent
+from .loop.events import AgentEvent
 from .loop import AgentResult
 from .session import SessionManager, get_session_manager
 
@@ -35,7 +35,7 @@ async def _injected_for(user_id: int) -> list[dict] | None:
     """注入块：长期记忆 + 数据新鲜度（读失败就退化成空，不能影响对话）。"""
     blocks: list[dict] = []
     try:
-        from garmin_coach.services.memory import build_injected
+        from garmin_coach.agent.memory import build_injected
 
         blocks.extend(build_injected(user_id) or [])
     except Exception:  # noqa: BLE001

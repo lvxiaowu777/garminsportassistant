@@ -13,7 +13,7 @@ from pathlib import Path
 try:  # dotenv 是可选依赖，缺席时退回「只读真实环境变量」
     from dotenv import load_dotenv
 
-    _ENV_FILE = Path(__file__).resolve().parent.parent.parent / ".env"
+    _ENV_FILE = Path(__file__).resolve().parent.parent.parent.parent / ".env"
     if _ENV_FILE.exists():
         load_dotenv(_ENV_FILE, override=False)
 except ImportError:  # pragma: no cover
@@ -92,8 +92,14 @@ DEFAULT_PROVIDER = "deepseek"
 
 
 def get_provider(name: str | None = None) -> ProviderConfig:
-    """按名字取 provider；没指定或名字不存在时用默认，且自动跳过没有 key 的。"""
-    key = name or DEFAULT_PROVIDER
+    """按名字取 provider；没指定时用后端配置（``LLM_PROVIDER``）。
+
+    注意：**不接受终端用户传 provider** —— 这是后端部署配置，不是用户偏好。
+    名字不存在或没有 key 时自动退到第一个有 key 的。
+    """
+    from garmin_coach.settings import settings
+
+    key = name or settings.llm_provider or DEFAULT_PROVIDER
     provider = PROVIDERS.get(key) or PROVIDERS[DEFAULT_PROVIDER]
     if provider.api_key:
         return provider

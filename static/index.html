@@ -922,6 +922,11 @@ async function sendChat() {
   input.value = '';
   input.style.height = 'auto';
   state.chatMessages.push({ role: 'user', content: msg, created_at: new Date().toISOString() });
+
+  // 先放一个空的助手气泡，边收边填（打字机）
+  const bubble = { role: 'assistant', content: '', created_at: new Date().toISOString() };
+  state.chatMessages.push(bubble);
+
   state.chatBusy = true;
   renderChat();
 
@@ -929,20 +934,85 @@ async function sendChat() {
   sendBtn.disabled = true;
 
   try {
-    const data = await api('/api/chat', { method: 'POST', body: { message: msg } });
-    state.chatMessages.push({
-      role: 'assistant',
-      content: (data && data.reply) || '（没有回复）',
-      created_at: new Date().toISOString(),
-    });
-    if (data && data.recorded) toast('已记录这次训练');
+    await streamChat(msg, bubble);
   } catch (err) {
-    state.chatMessages.push({ role: 'assistant', content: `⚠️ ${err.message}`, created_at: new Date().toISOString() });
+    bubble.content = (bubble.content ? bubble.content + '\n' : '') + `⚠️ ${err.message}`;
   } finally {
     state.chatBusy = false;
     sendBtn.disabled = false;
     renderChat();
   }
+}
+
+/**
+ * 消费后端 SSE（Agent 层事件），边收边渲染。
+ * 事件类型：text / thinking / tool_call / tool_result / done / error
+ */
+async function streamChat(message, bubble) {
+  const res = await fetch(API_BASE + '/api/chat/stream', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(state.token ? { Authorization: `Bearer ${state.token}` } : {}),
+    },
+    body: JSON.stringify({ message }),
+  });
+
+  if (res.status === 401) {
+    logout();
+    throw new Error('登录已失效，请重新登录');
+  }
+  if (!res.ok || !res.body) {
+    const text = await res.text().catch(() => '');
+    throw new Error(text || `请求失败 (${res.status})`);
+  }
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  let lastPaint = 0;
+
+  const paint = () => {
+    const now = performance.now();
+    if (now - lastPaint > 40) {       // 40ms 节流，避免每个 token 都重排
+      lastPaint = now;
+      renderChat();
+    }
+  };
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+
+    let idx;
+    while ((idx = buffer.indexOf('\n\n')) >= 0) {
+      const frame = buffer.slice(0, idx).trim();
+      buffer = buffer.slice(idx + 2);
+      if (!frame.startsWith('data:')) continue;
+
+      let evt;
+      try { evt = JSON.parse(frame.slice(5).trim()); } catch { continue; }
+
+      if (evt.type === 'text') {
+        bubble.content += evt.text;
+        paint();
+      } else if (evt.type === 'done') {
+        // 以最终结果为准（含工具执行后的完整文本）
+        bubble.content = evt.reply || bubble.content;
+        if (Array.isArray(evt.tools) && evt.tools.includes('record_training')) {
+          toast('已记录这次训练');
+        }
+      } else if (evt.type === 'error') {
+        bubble.content += `\n⚠️ ${evt.message}`;
+      }
+      // thinking / tool_call / tool_result：先只落控制台，工具进度提示后续再做
+      else if (evt.type === 'tool_call') {
+        console.debug('[tool]', evt.name, evt.arguments);
+      }
+    }
+  }
+  renderChat();
 }
 
 /* ══════════════════════════════════════════════════════════════

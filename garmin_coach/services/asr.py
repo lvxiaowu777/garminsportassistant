@@ -12,7 +12,7 @@ from pathlib import Path
 
 import httpx
 
-from garmin_coach.llm.config import get_provider
+from garmin_coach.agent.llmclient.config import get_provider
 
 log = logging.getLogger(__name__)
 
