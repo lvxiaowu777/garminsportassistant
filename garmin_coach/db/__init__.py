@@ -3,7 +3,7 @@
 ```
 database.py   engine / SessionLocal + 全部查询与写入函数（原 src/database.py）
 models.py     ORM 模型（9 张业务表 + user_memory / memory_outbox / agent_runs / agent_steps）
-legacy.py     过渡层：把 src/ 放进 sys.path（auth / 同步 / 推送还在 src）
+（已删除：src/ 已清空，不再需要过渡桥）
 ```
 
 **注意**：这个包不在 import 时建 engine —— ``database`` 模块需要 ``DATABASE_URL``

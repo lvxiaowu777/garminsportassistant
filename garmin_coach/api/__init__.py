@@ -3,7 +3,7 @@
 这一层不写业务逻辑，也不直接碰 SQLAlchemy。结构（阶段 4 已完成，2026-10-24）：
 
     deps.py              鉴权透传 / 静态目录 / 品牌配置 / logger
-                         （副作用：import 它会把 src/ 放进 sys.path）
+
     schemas.py           全部 Pydantic 请求模型
     routers/auth.py      /api/auth/*
     routers/watch.py     /api/watch/*

@@ -23,7 +23,7 @@ from garmin_coach.db.database import (
     set_watch_enabled,
     unbind_watch,
 )
-from garmin_server_sync import complete_mfa, login_and_store, sync_user_garmin
+from garmin_coach.integrations.garmin_sync import complete_mfa, login_and_store, sync_user_garmin
 
 router = APIRouter(prefix="/api/watch", tags=["watch"])
 

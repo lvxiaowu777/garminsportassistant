@@ -2,7 +2,22 @@
 
 > 逐文件讲「这一块是干什么的、关键函数在哪、数据从哪来到哪去」。
 > 和 [`PROJECT-OVERVIEW.md`](PROJECT-OVERVIEW.md) 的分工：那份讲**设计与取舍**，
-> 这份讲**代码实体**（哪个文件、哪一行、谁调谁）。行号以 2026-10-23 的 `b305f4e` 为准。
+> 这份讲**代码实体**（哪个文件、哪个函数、谁调谁）。
+>
+> ⚠️ **2026-10-25 结构变更，看下面的对照表再读**（下文旧路径已同步标注在括号里）：
+>
+> | 旧路径 | 新路径 |
+> |---|---|
+> | `src/database.py` | `garmin_coach/db/database.py` |
+> | `src/models.py` | `garmin_coach/db/models.py` |
+> | `src/auth.py` | `garmin_coach/auth.py` |
+> | `src/safety_rules.py` | `garmin_coach/services/safety_rules.py` |
+> | `src/garmin_sync.py` | `garmin_coach/integrations/garmin_client.py` |
+> | `src/garmin_server_sync.py` | `garmin_coach/integrations/garmin_sync.py` |
+> | `src/weather_server.py` | `garmin_coach/integrations/weather.py` |
+> | `src/push_service.py` | `garmin_coach/integrations/push.py` |
+> | `src/llm_client.py` | 已删除（ASR → `services/asr.py`） |
+> | `src/server.py` | 启动器（app 在 `garmin_coach/server.py`） |
 
 ---
 

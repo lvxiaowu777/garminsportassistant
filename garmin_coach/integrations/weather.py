@@ -14,10 +14,6 @@ from pathlib import Path
 
 import requests
 
-SRC = Path(__file__).resolve().parent
-if str(SRC) not in sys.path:
-    sys.path.insert(0, str(SRC))
-
 from garmin_coach.db.database import upsert_health_daily, get_active_brand
 
 

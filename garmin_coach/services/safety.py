@@ -1,26 +1,19 @@
 """安全档位服务 —— 把身体状态折算成训练强度上限。
 
-从 ``src/server.py`` 的 ``compute_safety()`` 原样搬过来，只做了两件事：
-去掉 FastAPI 依赖（它本来就没有）、把来源模块换成过渡桥。
-
-**为什么要搬**：这个函数既要被 HTTP 路由用（网页显示当前档位），
+**为什么要单独一层**：这个函数既要被 HTTP 路由用（网页显示当前档位），
 也要被 LLM 工具用（AI 回答"今晚能不能跑"）。放在 services 层两边共享，
 才能保证「网页说 EASY、AI 说 HARD」这种事不会发生。
 
-规则本身在 ``src/safety_rules.py`` 里（纯函数，有独立单元测试），
+规则本身在 ``services/safety_rules.py``（纯函数，可单测），
 这里只负责把数据库里的宽表拍平成规则引擎要的输入格式。
 """
 from __future__ import annotations
 
 import datetime as dt
 
-from garmin_coach.db.legacy import get_day, get_recent
+from garmin_coach.db.database import get_day, get_recent
 
-# 导入 legacy 的副作用是它已经把 src/ 放进了 sys.path，之后才能直接
-# `from safety_rules import ...`（规则引擎还在旧位置，后续阶段整体搬过来）
-from garmin_coach.db import legacy as _legacy  # noqa: F401
-
-from safety_rules import evaluate, tier_description  # noqa: E402
+from .safety_rules import evaluate, tier_description
 
 
 def compute_safety(user_id: int = 0) -> dict:

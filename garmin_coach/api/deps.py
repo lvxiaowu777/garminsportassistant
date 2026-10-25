@@ -10,10 +10,8 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
-from garmin_coach.db import legacy as _legacy  # noqa: F401  副作用：把 src/ 放进 sys.path
-
-from auth import get_current_user  # noqa: E402
-from garmin_server_sync import sync_user_garmin  # noqa: E402
+from garmin_coach.auth import get_current_user
+from garmin_coach.integrations.garmin_sync import sync_user_garmin
 
 # 静态资源目录（项目根/static）
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent

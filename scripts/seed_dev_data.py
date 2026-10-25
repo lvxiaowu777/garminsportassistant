@@ -197,7 +197,7 @@ def seed(a: argparse.Namespace) -> None:
     )
 
     from garmin_coach.db import database  # noqa: E402  必须在设置 DATABASE_URL 之后导入
-    from auth import create_token, hash_password  # noqa: E402
+    from garmin_coach.auth import create_token, hash_password
     from garmin_coach.db.models import (  # noqa: E402
         Activity, ChatHistory, DailyPlan, HealthDaily, StrengthSet, User, WatchBinding,
     )

@@ -16,15 +16,11 @@ if sys.platform == "win32":
     except Exception:
         pass
 
-SRC_DIR = Path(__file__).resolve().parent
-if str(SRC_DIR) not in sys.path:
-    sys.path.insert(0, str(SRC_DIR))
-
 from garminconnect import Garmin
-from garmin_sync import fetch_day
+from .garmin_client import fetch_day
 from garmin_coach.db.database import upsert_health_daily
 
-TOKEN_ROOT = Path(__file__).resolve().parent.parent / "config" / ".tokens"
+TOKEN_ROOT = Path(__file__).resolve().parent.parent.parent / "config" / ".tokens"
 
 # MFA 登录中暂存的 Garmin 对象。resume_login 依赖对象内部状态，必须保持同一实例。
 # 同时暂存 account，供两步完成后写 watch_bindings。

@@ -53,7 +53,7 @@ from garmin_coach.db.database import (
 _firebase_app = None
 
 # 服务账号 JSON 路径（从 Firebase Console 下载）
-SERVICE_ACCOUNT_PATH = Path(__file__).resolve().parent.parent / "config" / "firebase-service-account.json"
+SERVICE_ACCOUNT_PATH = Path(__file__).resolve().parent.parent.parent / "config" / "firebase-service-account.json"
 
 
 def init_firebase() -> bool:

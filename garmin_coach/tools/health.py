@@ -27,7 +27,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
-from garmin_coach.db.legacy import (
+from garmin_coach.db.database import (
     get_activity as db_get_activity,
     get_day as db_get_day,
     get_latest_plan as db_get_latest_plan,

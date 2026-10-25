@@ -8,7 +8,7 @@ from fastapi import APIRouter, HTTPException
 
 from ..schemas import PushRegisterRequest, PushTestRequest
 
-from push_service import (
+from garmin_coach.integrations.push import (
     check_and_notify,
     get_active_tokens,
     init_firebase,

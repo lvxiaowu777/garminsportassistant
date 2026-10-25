@@ -48,7 +48,7 @@
 ```
 
 > `api / agent / llm / services / db` 是**重构目标**。当前代码仍在过渡期，
-> 路由和业务逻辑集中在 `src/server.py`，见下方「重构路线」。
+> 路由在 `garmin_coach/api/routers/`，业务在 `garmin_coach/services/`，Agent 在 `garmin_coach/agent/`；见下方「目录结构」。
 
 ### 一次对话的生命周期（目标形态）
 
@@ -94,7 +94,7 @@ QWEATHER_API_KEY=your-qweather-key
 QWEATHER_API_HOST=your-qweather-host
 
 # 本地开发用 SQLite（首次启动自动建表）
-DATABASE_URL=sqlite:///./src/data/garmin_coach.db
+DATABASE_URL=mysql+pymysql://root:密码@127.0.0.1:3306/garmin_coach?charset=utf8mb4
 # 生产用 MySQL：
 # DATABASE_URL=mysql+pymysql://user:pass@localhost:3306/garmin_coach?charset=utf8mb4
 
@@ -131,41 +131,46 @@ python src/server.py
 
 ```
 garmin-coach/
-├── garmin_coach/                 # 新架构（路由 / Agent / 工具 / 领域服务）
-│   ├── api/
-│   │   ├── deps.py               # 鉴权透传、静态目录、品牌配置（同时把 src/ 放进 sys.path）
+├── garmin_coach/
+│   ├── api/                      # HTTP 层（薄壳）
+│   │   ├── deps.py               # 鉴权透传、静态目录、品牌配置
 │   │   ├── schemas.py            # 全部 Pydantic 请求模型
 │   │   └── routers/              # auth / watch / health / chat / user / push / system
-│   ├── agent/                    # Agent 循环、对话历史、系统提示词
+│   ├── agent/                    # Agent 循环（事件生成器）、会话管理、提示词
+│   │   ├── loop.py               # 模型 ↔ 工具循环，yield Agent 事件
+│   │   ├── events.py             # TextEvent / ToolCallEvent / DoneEvent…
+│   │   ├── conversation.py       # 消息本 + 序列化兜底
+│   │   ├── session.py            # SessionManager：生命周期 / 落库 / 恢复 / 回收
+│   │   ├── bridge.py             # 路由调用的入口（run_agent_chat / stream_agent_chat）
+│   │   └── prompts.py            # 唯一一份系统提示词（Agent 版 + 旧标记版）
 │   ├── tools/                    # 9 个工具 + 注册表
-│   ├── llm/                      # LLM 传输层（7 种流事件）
-│   ├── services/                 # 安全档位、训练阶段、对话上下文、标记解析、时段
-│   └── db/                       # 数据访问（过渡期桥接 src/database.py）
+│   ├── llm/                      # 传输层：base / openai / anthropic / config / factory
+│   ├── services/                 # 业务服务：safety / safety_rules / memory / trace / asr / clock
+│   ├── integrations/             # 外部服务：garmin_client / garmin_sync / weather / push
+│   ├── db/                       # 数据访问：database / models
+│   ├── auth.py                   # 密码哈希 + JWT
+│   ├── settings.py               # 运行时配置（env 可覆盖）
+│   └── server.py                 # app 组装 + main()
 ├── src/
-│   ├── server.py               # 薄入口：建 app + 挂路由 + 启动任务
-│   ├── database.py             # 数据访问层（SQLAlchemy）
-│   ├── models.py               # ORM 模型
-│   ├── llm_client.py           # 旧单轮 LLM 调用 + ASR（Agent 失败时的回退路径）
-│   ├── safety_rules.py         # 安全档位规则引擎（纯函数，有独立测试）
-│   ├── auth.py                 # 密码哈希 + JWT
-│   ├── push_service.py         # FCM 推送（未装 firebase-admin 时自动降级）
-│   ├── garmin_sync.py          # 佳明单日数据拉取（fetch_day）
-│   ├── garmin_server_sync.py   # 佳明同步编排（登录 / MFA / 落库）
-│   └── weather_server.py       # 天气同步（和风，按经纬度）
-├── static/                     # Web 仪表盘（单文件，无构建）
-├── config/                     # .tokens/{user_id}/ 手表登录令牌（gitignored）
+│   └── server.py                 # 启动器（只剩它，负责 sys.path 后调 main）
+├── static/                       # Web 仪表盘（单文件，无构建）
+├── scripts/                      # seed_dev_data / smoke_eval / migrate_session_id
+├── config/                       # .tokens/{user_id}/ 手表登录令牌（gitignored）
+├── docs/                         # CODE-MAP / PROJECT-OVERVIEW / REFACTOR
 ├── requirements.txt
 ├── .env.example
-├── deploy.py                   # 打包上传 + 备份 + 重启 + 验证（--check 只检查环境）
-└── deploy_config.example.py    # 部署脚本凭据模板
+├── deploy.py                     # 打包上传 + 备份 + 重启 + 验证（--check 只检查环境）
+└── deploy_config.example.py      # 部署脚本凭据模板
 ```
+
+> 启动方式不变：`python src/server.py`（等价于 `python -m garmin_coach.server`）。
 
 ---
 
 ## 重构路线
 
-现状：能跑，但 `server.py` 一个文件装了约 40 个路由，对话走的是「把数据拼成一大段
-文本塞进 system prompt」的单轮做法。目标是把对话换成真正的工具调用循环。
+现状：`src/` 已清空（只剩启动器），数据层 / Agent / 工具 / 传输层 / 外部服务都在
+`garmin_coach/` 包里；对话走真正的工具调用循环（Agent 事件流 + SSE）。
 
 | 阶段 | 内容 | 状态 |
 |---|---|---|
@@ -173,8 +178,8 @@ garmin-coach/
 | 1 | `LLMClient` 抽象（多协议 + 流式事件） | ✅ 完成 |
 | 2 | `Tool` 基类 + `ToolRegistry`，数据查询工具化 | ✅ 完成 |
 | 3 | `Agent.run()` 主循环 + `ConversationManager` | ✅ 完成 |
-| 4 | `server.py` 瘦身为薄路由 | 待做 |
-| 5 | 测试、文档、发布 | 待做 |
+| 4 | 路由拆分 + 会话化 + 持久化 + 记忆 + 双协议 + 流式 + trace | ✅ 完成 |
+| 5 | 42 题评测、安全加固（WS 验签 / JWT exp）、前端接流式 | 待做 |
 
 阶段 1-3 已落地：对话从「把全部数据拼进 prompt 的单轮调用」改造成
 「模型自己调工具查数据」的 Agent 循环，9 个工具，接口契约完全兼容。
