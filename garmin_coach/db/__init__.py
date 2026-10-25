@@ -1,22 +1,19 @@
-"""数据访问层 —— SQLAlchemy 模型与仓储函数。
+"""数据访问层。
 
-规划中的模块：
+```
+database.py   engine / SessionLocal + 全部查询与写入函数（原 src/database.py）
+models.py     ORM 模型（9 张业务表 + user_memory / memory_outbox / agent_runs / agent_steps）
+legacy.py     过渡层：把 src/ 放进 sys.path（auth / 同步 / 推送还在 src）
+```
 
-``models.py``
-    ORM 模型（从 ``src/models.py`` 迁）：User / WatchBinding / HealthDaily /
-    Activity / ChatHistory / DeviceToken / ExerciseName / StrengthSet / DailyPlan
+**注意**：这个包不在 import 时建 engine —— ``database`` 模块需要 ``DATABASE_URL``
+环境变量，导入即校验。所以这里不 re-export，用哪个模块直接 import：
 
-``session.py``
-    engine 与 SessionLocal 的创建。
-    **关键改动**：连接串必须来自 ``DATABASE_URL`` 环境变量，
-    不再像旧 ``src/database.py`` 那样把 MySQL 账号密码写成默认值。
+```python
+from garmin_coach.db import database
+from garmin_coach.db.models import ChatHistory
+```
 
-``repositories.py``
-    按聚合根拆分的查询函数，替代 ``src/database.py``（44KB，约 1200 行）
-    那种「所有表的所有查询塞在一个文件」的组织方式。
-    建议按 User / Health / Activity / Chat 拆成四个仓储模块。
-
-迁移要点：旧 ``database.py`` 顶部还带一段手写的 .env 解析和硬编码 Windows
-绝对路径（``C:\\Users\\...\\study\\.env``），这部分在迁移时删掉，
-改用标准的 dotenv 加载。
+下一步（未做）：把 ``database.py`` 按聚合根拆成 ``repositories/``
+（user / health / activity / chat），现在它仍是单文件 ~1200 行。
 """

@@ -48,11 +48,13 @@ async def run_agent_chat(
     history: list[dict] | None = None,
     provider_name: str | None = None,
     max_turns: int | None = None,
+    persist_user: bool = True,
 ) -> AgentResult:
     """跑一轮带工具的对话，返回结构化结果。
 
     - ``history``：只有会话**首次**使用时会被用来 hydrate（之后走内存）
-    - 抛 ``RuntimeError`` 表示没有可用 API key，调用方据此决定回退或报错
+    - ``persist_user=False``：调用方自己写过 user 消息（语音消息带 audio_url）
+    - 抛 ``RuntimeError`` 表示没有可用 API key
     """
     _check_provider(provider_name)
     return await get_session_manager().run_turn(
@@ -62,6 +64,7 @@ async def run_agent_chat(
         injected=_injected_for(user_id),
         provider_name=provider_name,
         max_turns=max_turns if max_turns is not None else settings.agent_max_turns,
+        persist_user=persist_user,
     )
 
 
@@ -72,6 +75,7 @@ async def stream_agent_chat(
     history: list[dict] | None = None,
     provider_name: str | None = None,
     max_turns: int | None = None,
+    persist_user: bool = True,
 ) -> AsyncIterator[AgentEvent]:
     """跑一轮并逐事件产出（SSE / WS 用）。
 
@@ -86,5 +90,6 @@ async def stream_agent_chat(
         injected=_injected_for(user_id),
         provider_name=provider_name,
         max_turns=max_turns if max_turns is not None else settings.agent_max_turns,
+        persist_user=persist_user,
     ):
         yield event

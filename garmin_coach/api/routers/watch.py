@@ -16,7 +16,7 @@ from ..schemas import (
     WatchToggleRequest,
 )
 
-from database import (
+from garmin_coach.db.database import (
     bind_watch,
     get_watch_bindings,
     select_watch,

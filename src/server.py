@@ -80,7 +80,7 @@ if __name__ == "__main__":
     import uvicorn
     from apscheduler.schedulers.background import BackgroundScheduler
 
-    from database import cleanup_old_chat, init_db
+    from garmin_coach.db.database import cleanup_old_chat, init_db
     from garmin_coach.agent.session import get_session_manager
     from garmin_coach.settings import settings
     from garmin_server_sync import sync_all_users

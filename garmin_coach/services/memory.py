@@ -15,8 +15,8 @@ import datetime as dt
 import json
 import re
 
-from database import SessionLocal
-from models import MemoryOutbox, UserMemory
+from garmin_coach.db.database import SessionLocal
+from garmin_coach.db.models import MemoryOutbox, UserMemory
 from sqlalchemy import select
 
 #: 允许的 kind（和总纲 §2.9 一致）
@@ -163,7 +163,7 @@ def process_outbox(limit: int = 20) -> dict:
 
     幂等：每条 outbox 处理一次后置 done；失败置 failed 并累加 attempts。
     """
-    from database import get_chat_history
+    from garmin_coach.db.database import get_chat_history
 
     session = SessionLocal()
     try:

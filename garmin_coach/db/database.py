@@ -1,6 +1,6 @@
 """
-数据库层 —— SQLAlchemy + MySQL 存储健康数据、活动记录、聊天历史。
-MySQL 数据访问层。对外函数签名保持不变，内部用 SQLAlchemy Session。
+数据访问层 —— SQLAlchemy + MySQL（健康数据、活动、聊天、记忆、trace）。
+对外函数签名保持稳定，内部用 SQLAlchemy Session。
 """
 import sys
 import os
@@ -17,8 +17,8 @@ if sys.platform == "win32":
 
 from typing import Optional
 
-# 加载 .env：优先项目目录（服务器 ~/garmin-coach/.env），fallback 本地 study/.env
-ENV_PATH = Path(__file__).resolve().parent.parent / ".env"
+# 加载 .env：本文件在 garmin_coach/db/ 下，项目根是上三层
+ENV_PATH = Path(__file__).resolve().parent.parent.parent / ".env"
 if not ENV_PATH.exists():
     # 兼容旧的本地布局：<用户主目录>/study/.env
     # 不硬编码用户名，换成 Path.home() 推导；可用 GARMIN_STUDY_DIR 覆盖。
@@ -37,7 +37,7 @@ from sqlalchemy import create_engine, delete, select, func, inspect, text
 from sqlalchemy.dialects.mysql import insert as _mysql_insert
 from sqlalchemy.orm import sessionmaker
 
-from models import (
+from .models import (
     Base, User, WatchBinding, HealthDaily, Activity, ChatHistory, DeviceToken,
     ExerciseName, StrengthSet, DailyPlan,
 )

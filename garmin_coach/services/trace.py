@@ -12,8 +12,8 @@ from __future__ import annotations
 import datetime as dt
 import json
 
-from database import SessionLocal
-from models import AgentRun, AgentStep
+from garmin_coach.db.database import SessionLocal
+from garmin_coach.db.models import AgentRun, AgentStep
 from sqlalchemy import func, select
 
 RESULT_PREVIEW = 500  # 工具结果只存前 N 字符，避免 trace 表膨胀

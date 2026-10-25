@@ -47,13 +47,13 @@ MAX_SESSIONS = settings.max_sessions
 
 def _default_loader(user_id: int, session_id: str) -> list[dict]:
     """从 MySQL 读该会话的历史（延迟导入，避免 agent 层依赖 database 的导入顺序）。"""
-    from database import get_chat_history
+    from garmin_coach.db.database import get_chat_history
 
     return get_chat_history(50, user_id, session_id=session_id)
 
 
 def _default_persister(session_id: str, user_id: int, role: str, content: str) -> None:
-    from database import add_chat
+    from garmin_coach.db.database import add_chat
 
     add_chat(role, content, user_id, session_id=session_id)
 
@@ -77,6 +77,14 @@ def session_id_for(user_id: int, day: dt.date | None = None) -> str:
     return f"u{user_id}-{(day or dt.date.today()).isoformat()}"
 
 
+def _current_loop_id() -> int:
+    """当前事件循环的 id；没有 loop 时返回 0。"""
+    try:
+        return id(asyncio.get_running_loop())
+    except RuntimeError:
+        return 0
+
+
 @dataclass
 class Session:
     """一个会话的内存态。"""
@@ -88,6 +96,9 @@ class Session:
     created_at: float = field(default_factory=time.time)
     last_active: float = field(default_factory=time.time)
     turns: int = 0
+    #: 创建时所在的事件循环。跨 loop 复用同一个 Agent 会拿到已关闭的 loop
+    #: （测试里每个请求一个 loop，uvicorn 生产环境只有一个）。
+    loop_id: int = 0
 
     def touch(self) -> None:
         self.last_active = time.time()
@@ -134,6 +145,19 @@ class SessionManager:
         self._maybe_reap()
         sid = session_id_for(user_id)
         session = self._sessions.get(sid)
+        try:
+            current_loop = _current_loop_id()
+        except RuntimeError:
+            current_loop = 0
+
+        if session is not None and session.loop_id != current_loop:
+            # 换了事件循环（测试里每个请求一个 loop）：旧 Agent 里的锁/客户端
+            # 绑在已关闭的 loop 上，必须重建，但消息要带过去。
+            old_messages = session.agent.conversation.messages
+            session = self._build(user_id, sid, provider_name or session.provider, max_turns)
+            session.agent.conversation.messages.extend(old_messages)
+            self._sessions[sid] = session
+            log.info("session rebuilt for new event loop: %s", sid)
 
         if session is None:
             session = self._build(user_id, sid, provider_name, max_turns)
@@ -179,6 +203,7 @@ class SessionManager:
             user_id=user_id,
             agent=agent,
             provider=provider.key,
+            loop_id=_current_loop_id(),
         )
 
     # ── 恢复 ──
@@ -207,11 +232,15 @@ class SessionManager:
         injected: list[dict] | None = None,
         provider_name: str | None = None,
         max_turns: int | None = None,
+        persist_user: bool = True,
     ) -> AsyncIterator[Any]:
-        """跑一轮并**逐事件产出**（SSE 用），结束时落库 + 记 trace。
+        """跑一轮并**逐事件产出**（SSE / WS 用），结束时落库 + 记 trace。
 
         ``run_turn`` 就是把这一个生成器消费完，两者共用同一套副作用，
         所以不会出现「流式走了、聊天历史没存」的问题。
+
+        ``persist_user=False``：调用方自己已经写过 user 消息（如语音消息要带
+        audio_url / type=voice），避免重复插入。
         """
         from .events import DoneEvent
 
@@ -223,7 +252,8 @@ class SessionManager:
         lock = self._locks.setdefault(session.session_id, asyncio.Lock())
         async with lock:
             # 先落 user：即使模型/网络中途挂了，用户说的话也不会丢
-            self._persist_message(session, "user", message)
+            if persist_user:
+                self._persist_message(session, "user", message)
             t0 = time.perf_counter()
             result: AgentResult | None = None
             try:
@@ -251,6 +281,7 @@ class SessionManager:
         provider_name: str | None = None,
         max_turns: int | None = None,
         on_text: Any = None,
+        persist_user: bool = True,
     ) -> AgentResult:
         """跑一轮并返回最终结果（非流式接口用）。"""
         from .events import DoneEvent, TextEvent
@@ -263,6 +294,7 @@ class SessionManager:
             injected=injected,
             provider_name=provider_name,
             max_turns=max_turns,
+            persist_user=persist_user,
         ):
             if isinstance(event, TextEvent) and on_text is not None:
                 on_text(event.text)
@@ -378,7 +410,7 @@ class SessionManager:
         memory_deleted = 0
         if wipe_messages:
             try:
-                from database import clear_session_chat
+                from garmin_coach.db.database import clear_session_chat
 
                 deleted = clear_session_chat(sid, user_id)
             except Exception as exc:  # noqa: BLE001 - 清理失败不该中断评测
@@ -386,8 +418,8 @@ class SessionManager:
 
         if wipe_memory:
             try:
-                from database import SessionLocal
-                from models import MemoryOutbox, UserMemory
+                from garmin_coach.db.database import SessionLocal
+                from garmin_coach.db.models import MemoryOutbox, UserMemory
                 from sqlalchemy import delete
 
                 with SessionLocal() as s:

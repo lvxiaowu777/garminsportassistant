@@ -1,14 +1,13 @@
 """过渡层：把还在 ``src/`` 下的旧模块接进新包。
 
-这是绞杀者模式的临时脚手架。``database.py`` 等模块整体搬进
-``garmin_coach/db/`` 之后，这个文件就该删掉。
+``database.py`` / ``models.py`` **已经搬进** ``garmin_coach/db/``，所以这个文件
+现在只剩一个职责：**把 ``src/`` 放进 ``sys.path``**，让 ``auth`` / ``garmin_sync`` /
+``garmin_server_sync`` / ``push_service`` / ``weather_server`` 这些还没搬的模块能被 import。
 
-为什么要单独一层：新包不该到处写 ``sys.path.insert``，集中在这里做一次，
-其他模块只 ``from garmin_coach.db.legacy import get_day`` 就行，
-将来搬迁时只需要改这一个文件。
+等这些模块也迁完，这个文件和 ``api/deps.py`` 里的 import 一起删。
 
-另外它还有个副作用被 ``api/deps.py`` 依赖：**import 这个模块 = 把 src/ 放进 sys.path**。
-所以路由层只要先 import deps，之后就能直接 ``from database import ...``。
+另外它继续 re-export 常用查询函数，路由/工具层可以只 import 这里，
+将来再改数据层时调用点不用动。
 """
 from __future__ import annotations
 
@@ -19,7 +18,7 @@ SRC_DIR = Path(__file__).resolve().parent.parent.parent / "src"
 if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
-from database import (  # noqa: E402
+from garmin_coach.db.database import (  # noqa: E402
     get_activity,
     get_dashboard,
     get_day,

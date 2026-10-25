@@ -22,7 +22,7 @@ if str(SRC_DIR) not in sys.path:
 
 from garminconnect import Garmin
 from garmin_sync import fetch_day
-from database import upsert_health_daily
+from garmin_coach.db.database import upsert_health_daily
 
 TOKEN_ROOT = Path(__file__).resolve().parent.parent / "config" / ".tokens"
 
@@ -76,7 +76,7 @@ def has_token(user_id: int) -> bool:
 def sync_user_garmin(user_id: int, days: int = 7) -> tuple[int, str | None]:
     """用已存 token 登录，拉最近 days 天数据写 MySQL。返回 (成功天数, error)。"""
     # 设备关闭则不同步
-    from database import get_watch_enabled
+    from garmin_coach.db.database import get_watch_enabled
     if not get_watch_enabled(user_id, "garmin"):
         return 0, "Garmin 设备已关闭，请先在设备页开启"
 
@@ -102,7 +102,7 @@ def sync_user_garmin(user_id: int, days: int = 7) -> tuple[int, str | None]:
 
 def sync_all_users(days: int = 7) -> dict:
     """同步所有已绑定 garmin 的用户（定时任务用）。"""
-    from database import get_enabled_user_ids
+    from garmin_coach.db.database import get_enabled_user_ids
     uids = get_enabled_user_ids("garmin")
 
     result = {}

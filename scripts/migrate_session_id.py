@@ -31,7 +31,7 @@ def parse_args() -> argparse.Namespace:
 def main() -> None:
     args = parse_args()
 
-    import database  # noqa: E402  （导入即加载 .env 里的 DATABASE_URL）
+    from garmin_coach.db import database  # noqa: E402  （导入即加载 .env 里的 DATABASE_URL）
     from sqlalchemy import text  # noqa: E402
 
     engine = database.engine

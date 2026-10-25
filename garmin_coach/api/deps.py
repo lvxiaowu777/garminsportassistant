@@ -1,9 +1,9 @@
 """路由层共享依赖：鉴权、路径常量、品牌配置、logger。
 
 **这个模块还有一个隐藏职责**：import `garmin_coach.db.legacy` 的副作用会把 `src/`
-放进 `sys.path`，之后各路由里的 `from database import ...` 才成立。
-这是绞杀者模式的过渡手段——`database.py` 整体搬进 `garmin_coach/db/` 之后，
-这个副作用就可以删掉，届时路由改成 `from garmin_coach.db import ...`。
+放进 `sys.path`。数据层（database/models）已经搬进 `garmin_coach/db/`，
+但 `auth` / `garmin_server_sync` / `push_service` / `weather_server` 还在 `src/`，
+所以这个副作用暂时保留；等 `src/` 清空后一起删。
 """
 from __future__ import annotations
 

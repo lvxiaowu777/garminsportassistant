@@ -39,7 +39,7 @@ except ImportError:  # pragma: no cover - 取决于部署环境
     messaging = None  # type: ignore[assignment]
     _FIREBASE_AVAILABLE = False
 
-from database import (
+from garmin_coach.db.database import (
     register_device_token,
     get_active_tokens as db_get_active_tokens,
     remove_token as db_remove_token,

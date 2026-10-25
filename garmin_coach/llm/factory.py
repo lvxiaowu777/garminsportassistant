@@ -9,12 +9,14 @@
 """
 from __future__ import annotations
 
+import asyncio
+
 from .anthropic import AnthropicClient
 from .base import LLMClient
 from .config import ProviderConfig, get_provider
 from .openai import OpenAIClient
 
-_shared: dict[tuple[str, str, str], LLMClient] = {}
+_shared: dict[tuple, LLMClient] = {}
 
 
 def create_client(provider: ProviderConfig | None = None) -> LLMClient:
@@ -26,9 +28,20 @@ def create_client(provider: ProviderConfig | None = None) -> LLMClient:
 
 
 def get_shared_client(provider: ProviderConfig | None = None) -> LLMClient:
-    """按 (protocol, base_url, model) 缓存客户端。"""
+    """按 (protocol, base_url, model, 事件循环) 缓存客户端。
+
+    **为什么要带事件循环**：SDK 内部的 httpx.AsyncClient 绑定在创建它的
+    loop 上。多 loop 场景（测试里每个请求一个新 loop、或一个进程里跑多个
+    loop）复用同一个实例会报 ``Event loop is closed``。带上 loop id 后，
+    每个 loop 各有一份连接池，生产环境（单 loop）仍然只有一个实例。
+    """
     cfg = provider or get_provider()
-    key = (cfg.protocol, cfg.base_url, cfg.model)
+    try:
+        loop_id = id(asyncio.get_running_loop())
+    except RuntimeError:  # 没有运行中的 loop（同步上下文）
+        loop_id = 0
+
+    key = (cfg.protocol, cfg.base_url, cfg.model, loop_id)
     client = _shared.get(key)
     if client is None:
         client = create_client(cfg)

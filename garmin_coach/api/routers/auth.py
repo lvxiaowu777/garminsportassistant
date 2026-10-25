@@ -7,7 +7,7 @@ from ..deps import get_current_user  # noqa: F401  同时完成 sys.path 设置
 from ..schemas import LoginRequest, RegisterRequest
 
 from auth import create_token, hash_password, verify_password
-from database import create_user, get_user_by_phone, get_user_profile
+from garmin_coach.db.database import create_user, get_user_by_phone, get_user_profile
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 

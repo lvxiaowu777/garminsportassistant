@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends
 from ..deps import get_current_user
 from ..schemas import UpdateProfileRequest
 
-from database import get_user_profile, update_user_profile
+from garmin_coach.db.database import get_user_profile, update_user_profile
 
 router = APIRouter(prefix="/api/user", tags=["user"])
 

@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from ..deps import SYNCERS, get_current_user
 from ..schemas import RecordTrainingRequest, UpdateExercisesRequest
 
-from database import (
+from garmin_coach.db.database import (
     delete_activity,
     get_activity,
     get_dashboard,

@@ -27,7 +27,8 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(ROOT / "src"))
+sys.path.insert(0, str(ROOT))          # garmin_coach 包在项目根
+sys.path.insert(0, str(ROOT / "src"))  # auth 等旧模块在 src
 
 WEEKDAY = ["一", "二", "三", "四", "五", "六", "日"]
 
@@ -195,9 +196,9 @@ def seed(a: argparse.Namespace) -> None:
         f"mysql+pymysql://{a.user}:{a.password}@{a.host}:{a.port}/{a.db}?charset=utf8mb4"
     )
 
-    import database  # noqa: E402  必须在设置 DATABASE_URL 之后导入
+    from garmin_coach.db import database  # noqa: E402  必须在设置 DATABASE_URL 之后导入
     from auth import create_token, hash_password  # noqa: E402
-    from models import (  # noqa: E402
+    from garmin_coach.db.models import (  # noqa: E402
         Activity, ChatHistory, DailyPlan, HealthDaily, StrengthSet, User, WatchBinding,
     )
     from sqlalchemy import delete, select  # noqa: E402

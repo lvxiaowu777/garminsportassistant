@@ -2,7 +2,7 @@
 服务器版天气同步 —— 从和风拉天气直接写 MySQL。
 必须传入经纬度定位当地天气（面向多人使用，不做默认城市）。
 
-依赖（环境变量，由 llm_client 加载项目 .env 提供）：
+依赖（环境变量，由 garmin_coach.db.database 在导入时加载项目 .env 提供）：
     QWEATHER_API_KEY
     QWEATHER_API_HOST
 """
@@ -18,7 +18,7 @@ SRC = Path(__file__).resolve().parent
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from database import upsert_health_daily, get_active_brand
+from garmin_coach.db.database import upsert_health_daily, get_active_brand
 
 
 def _host() -> str:
