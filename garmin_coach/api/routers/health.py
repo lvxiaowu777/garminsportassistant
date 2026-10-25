@@ -5,7 +5,7 @@ import datetime as dt
 
 from fastapi import APIRouter, Depends, HTTPException
 
-from ..deps import SYNCERS, get_current_user
+from ..deps import get_current_user, require_user
 from ..schemas import RecordTrainingRequest, UpdateExercisesRequest
 
 from garmin_coach.db.database import (
@@ -22,13 +22,15 @@ from garmin_coach.db.database import (
     update_last_sync_date,
 )
 from garmin_coach.services.clock import period_of
+from garmin_coach.services.health_sync import sync_all_brands
 from garmin_coach.services.safety import compute_safety
+from garmin_coach.services.training import record_strength
 
 router = APIRouter(prefix="/api/health", tags=["health"])
 
 
 @router.get("/dashboard")
-async def api_dashboard(user_id: int = Depends(get_current_user)):
+async def api_dashboard(user_id: int = Depends(require_user)):
     """仪表盘聚合数据。"""
     dashboard = get_dashboard(user_id)
     dashboard["safety"] = compute_safety(user_id)
@@ -40,7 +42,7 @@ async def api_dashboard(user_id: int = Depends(get_current_user)):
 
 
 @router.get("/day/{date}")
-async def api_day(date: str, user_id: int = Depends(get_current_user)):
+async def api_day(date: str, user_id: int = Depends(require_user)):
     """某天详情。"""
     data = get_day(date, user_id)
     if not data:
@@ -49,19 +51,19 @@ async def api_day(date: str, user_id: int = Depends(get_current_user)):
 
 
 @router.get("/recent/{days}")
-async def api_recent(days: int = 7, user_id: int = Depends(get_current_user)):
+async def api_recent(days: int = 7, user_id: int = Depends(require_user)):
     """最近 N 天。"""
     return get_recent(days, user_id)
 
 
 @router.get("/safety")
-async def api_safety(user_id: int = Depends(get_current_user)):
+async def api_safety(user_id: int = Depends(require_user)):
     """当前安全档位。"""
     return compute_safety(user_id)
 
 
 @router.get("/activity/{activity_id}")
-async def api_activity(activity_id: str, user_id: int = Depends(get_current_user)):
+async def api_activity(activity_id: str, user_id: int = Depends(require_user)):
     """单次活动详情。"""
     data = get_activity(activity_id, user_id)
     if not data:
@@ -70,7 +72,7 @@ async def api_activity(activity_id: str, user_id: int = Depends(get_current_user
 
 
 @router.delete("/activity/{activity_id}")
-async def api_delete_activity(activity_id: str, user_id: int = Depends(get_current_user)):
+async def api_delete_activity(activity_id: str, user_id: int = Depends(require_user)):
     """删除一条训练记录。"""
     ok = delete_activity(activity_id, user_id)
     if not ok:
@@ -82,7 +84,7 @@ async def api_delete_activity(activity_id: str, user_id: int = Depends(get_curre
 async def api_update_activity(
     activity_id: str,
     req: UpdateExercisesRequest,
-    user_id: int = Depends(get_current_user),
+    user_id: int = Depends(require_user),
 ):
     """编辑力量训练的动作明细（删旧插新）。"""
     ok = update_activity_exercises(activity_id, user_id, req.exercises)
@@ -92,7 +94,7 @@ async def api_update_activity(
 
 
 @router.get("/weather")
-async def api_weather(user_id: int = Depends(get_current_user)):
+async def api_weather(user_id: int = Depends(require_user)):
     """今日天气。"""
     today = dt.date.today().isoformat()
     data = get_weather(today, user_id)
@@ -102,36 +104,17 @@ async def api_weather(user_id: int = Depends(get_current_user)):
 
 
 @router.post("/sync")
-async def api_sync_health(user_id: int = Depends(get_current_user)):
-    """手动同步：当天首次全量 7 天，之后只同步当天。
+async def api_sync_health(user_id: int = Depends(require_user)):
+    """手动同步：当天首次拉 7 天，之后只拉当天（规则在 services/health_sync）。"""
+    import asyncio
 
-    按品牌分发到 `deps.SYNCERS`；绑了但还没同步实现的品牌（apple 等）只回一条 note。
-    """
-    if user_id == 0:
-        raise HTTPException(401, "请先登录")
-    today = dt.date.today().isoformat()
-    days = 1 if get_last_sync_date(user_id) == today else 7
-    results: dict[str, dict] = {}
-    brands = [b["brand"] for b in get_watch_bindings(user_id) if b.get("enabled")]
-    for brand in brands:
-        sync_fn = SYNCERS.get(brand)
-        if sync_fn is None:
-            results[brand] = {"days": 0, "error": None, "note": "该品牌暂不支持自动同步"}
-            continue
-        n, err = sync_fn(user_id, days=days)
-        results[brand] = {"days": n, "error": err}
-    update_last_sync_date(user_id, today)
-
-    total = sum(v["days"] for v in results.values())
-    errs = [v["error"] for v in results.values() if v["error"]]
-    if errs and total == 0:
-        raise HTTPException(400, errs[0])
-    return {"ok": True, "days": total, "results": results}
+    result = await asyncio.to_thread(sync_all_brands, user_id)
+    return {"ok": True, **result}
 
 
 @router.post("/sync-weather")
 async def api_sync_weather(
-    user_id: int = Depends(get_current_user),
+    user_id: int = Depends(require_user),
     lon: float = 0.0,
     lat: float = 0.0,
 ):
@@ -153,10 +136,14 @@ async def api_sync_weather(
 @router.post("/record-training")
 async def api_record_training(
     req: RecordTrainingRequest,
-    user_id: int = Depends(get_current_user),
+    user_id: int = Depends(require_user),
 ):
-    """手动记录一次训练（幂等：重复提交不会产生重复记录）。"""
-    result = record_training(user_id, req.type, req.duration_min, req.notes, req.date)
+    """手动记录一次力量训练（幂等；跑步以手表为准）。"""
+    import asyncio
+
+    result = await asyncio.to_thread(
+        record_strength, user_id, req.type, req.duration_min, req.notes, req.date
+    )
     if result.get("ok"):
         detail = ""
         if result.get("merged"):

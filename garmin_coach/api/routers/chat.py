@@ -28,7 +28,7 @@ from fastapi import (
 )
 from fastapi.responses import StreamingResponse
 
-from ..deps import AUDIO_DIR, get_current_user, log
+from ..deps import AUDIO_DIR, log, require_user
 from ..schemas import ChatRequest
 
 from garmin_coach.agent.loop.events import DoneEvent, TextEvent, to_sse
@@ -50,28 +50,34 @@ AUDIO_SUFFIXES = (".wav", ".m4a", ".mp3", ".webm", ".ogg")
 # ── 历史 ──
 
 @router.get("/api/chat/history")
-async def api_chat_history(date: str = "", user_id: int = Depends(get_current_user)):
+async def api_chat_history(date: str = "", user_id: int = Depends(require_user)):
     """聊天历史，date 可选（YYYY-MM-DD），默认返回最近 200 条。"""
     return get_chat_history(200, user_id, date)
 
 
 @router.get("/api/chat/dates")
-async def api_chat_dates(user_id: int = Depends(get_current_user)):
+async def api_chat_dates(user_id: int = Depends(require_user)):
     """近 7 天有聊天记录的日期列表（供日期下拉框）。"""
     return get_chat_dates(user_id)
 
 
 @router.delete("/api/chat/history")
-async def api_clear_chat(user_id: int = Depends(get_current_user)):
-    """清空聊天历史（只删记录，不删长期记忆）。"""
+async def api_clear_chat(user_id: int = Depends(require_user)):
+    """清空聊天历史（只删记录，不删长期记忆）。
+
+    **同时丢掉内存里的会话**：只删库不清内存的话，模型下一句还记得刚删掉的内容。
+    """
     clear_chat_history(user_id)
+    from garmin_coach.agent.session import get_session_manager
+
+    get_session_manager().drop(user_id)
     return {"ok": True}
 
 
 # ── 语音转文字 ──
 
 @router.post("/api/asr")
-async def api_asr(file: UploadFile = File(...), user_id: int = Depends(get_current_user)):
+async def api_asr(file: UploadFile = File(...), user_id: int = Depends(require_user)):
     """语音转文字（StepFun ASR）。"""
     audio_bytes = await file.read()
     text = await asr_transcribe(audio_bytes, file.filename or "audio.m4a")
@@ -86,7 +92,7 @@ async def api_asr(file: UploadFile = File(...), user_id: int = Depends(get_curre
 async def api_chat_voice(
     file: UploadFile = File(...),
     duration_sec: int = Form(0),
-    user_id: int = Depends(get_current_user),
+    user_id: int = Depends(require_user),
 ):
     """语音消息：存音频 → ASR → 同一个 Agent 回答。
 
@@ -138,7 +144,7 @@ async def api_chat_voice(
 # ── 文字（非流式）──
 
 @router.post("/api/chat")
-async def api_chat(req: ChatRequest, user_id: int = Depends(get_current_user)):
+async def api_chat(req: ChatRequest, user_id: int = Depends(require_user)):
     """非流式对话：内部消费 Agent 事件流，返回最终结果。
 
     落库（user / assistant）和 trace 都由 ``SessionManager`` 负责，
@@ -162,7 +168,7 @@ async def api_chat(req: ChatRequest, user_id: int = Depends(get_current_user)):
 # ── 文字（流式 SSE）──
 
 @router.post("/api/chat/stream")
-async def api_chat_stream(req: ChatRequest, user_id: int = Depends(get_current_user)):
+async def api_chat_stream(req: ChatRequest, user_id: int = Depends(require_user)):
     """流式对话（SSE，第二跳）。
 
     转发的是 **Agent 层事件**（text / thinking / tool_call / tool_result / done / error），

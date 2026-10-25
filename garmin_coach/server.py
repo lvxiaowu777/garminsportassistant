@@ -20,10 +20,12 @@ from __future__ import annotations
 import logging
 import sys
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from .api.deps import STATIC_DIR
+from .errors import AppError
 from .api.routers import auth, chat, health, push, system, user, watch
 
 # Windows 控制台默认 GBK，中文日志会炸；只影响本地开发
@@ -35,6 +37,12 @@ if sys.platform == "win32":
         pass
 
 app = FastAPI(title="Garmin Coach", version="1.0.0")
+
+
+@app.exception_handler(AppError)
+async def _app_error_handler(request: Request, exc: AppError) -> JSONResponse:
+    """业务异常 → HTTP 状态码（service 层只管抛，路由不用写 try/except）。"""
+    return JSONResponse(status_code=exc.status_code, content={"detail": exc.message})
 
 # 让 Agent 的工具调用过程能在服务器日志里看到（agent / garmin.server 两个 logger）。
 # 只在没人配过 handler 时设一次，避免覆盖 uvicorn 自己的配置。

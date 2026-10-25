@@ -1,17 +1,22 @@
 """路由层共享依赖：鉴权、路径常量、品牌配置、logger。
 
-**这个模块还有一个隐藏职责**：import `garmin_coach.db.legacy` 的副作用会把 `src/`
-放进 `sys.path`。数据层（database/models）已经搬进 `garmin_coach/db/`，
-但 `auth` / `garmin_server_sync` / `push_service` / `weather_server` 还在 `src/`，
-所以这个副作用暂时保留；等 `src/` 清空后一起删。
+分层约定（避免路由里又出现业务判断）：
+
+- 路由只做：**鉴权 + 参数 + 调 service + 返回**；
+- 需要登录的接口用 ``Depends(require_user)``，不要在函数体里写 `if user_id == 0`；
+- 业务规则抛 ``AppError``（`garmin_coach/errors.py`），由 `server.py` 统一翻译成状态码。
 """
 from __future__ import annotations
 
 import logging
 from pathlib import Path
 
+from fastapi import Depends
+
 from garmin_coach.auth import get_current_user
-from garmin_coach.integrations.garmin_sync import sync_user_garmin
+from garmin_coach.errors import AuthRequiredError
+from garmin_coach.services.health_sync import SYNCERS
+from garmin_coach.services.watch import SUPPORTED_BRANDS
 
 # 静态资源目录（项目根/static）
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
@@ -23,15 +28,6 @@ AUDIO_DIR.mkdir(exist_ok=True)
 # 路由里用的 logger 与应用共用同一个名字，日志格式在 server.py 里统一配置
 log = logging.getLogger("garmin.server")
 
-# ── 手表品牌 ──
-# 多品牌是设计的一部分，不是某个品牌专属的实现：所有数据表都有 brand 列，
-# watch_bindings 按 (user_id, brand) 唯一，仪表盘按「当前启用品牌」取数。
-# 加一个品牌只要两步：
-#   1. 品牌名加进 SUPPORTED_BRANDS（不在这里的直接 400）
-#   2. 有自动同步的，把同步函数加进 SYNCERS；只记录账号的不加（如 apple/huawei/xiaomi）
-SUPPORTED_BRANDS = ("garmin", "apple", "huawei", "xiaomi")
-SYNCERS = {"garmin": sync_user_garmin}
-
 __all__ = [
     "AUDIO_DIR",
     "STATIC_DIR",
@@ -39,4 +35,12 @@ __all__ = [
     "SYNCERS",
     "get_current_user",
     "log",
+    "require_user",
 ]
+
+
+async def require_user(user_id: int = Depends(get_current_user)) -> int:
+    """需要登录的接口统一用它：未登录直接 401，路由里不再重复判断。"""
+    if not user_id:
+        raise AuthRequiredError()
+    return user_id
