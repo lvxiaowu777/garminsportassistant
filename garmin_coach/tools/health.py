@@ -75,7 +75,10 @@ class ExerciseItem(BaseModel):
 class RecordParams(BaseModel):
     train_type: str = Field(
         ...,
-        description="训练类型：strength_training / running / cycling / swimming",
+        description=(
+            "训练类型。**只能填 strength_training**："
+            "跑步/骑行/游泳来自手表同步，不要手动记录"
+        ),
     )
     duration_min: int = Field(..., ge=1, le=600, description="时长（分钟）")
     notes: str = Field("", description="训练内容摘要，力量写动作和组数")
@@ -476,10 +479,10 @@ class GetProfileTool(Tool):
 class RecordTrainingTool(Tool):
     name = "record_training"
     description = (
-        "把用户口述的一次训练写进记录。\n"
-        "**只在这两种情况调用**：(1) 用户明确说自己练了什么（「今天练了力量，"
-        "深蹲 5 组」）；(2) 用户明确要求记录。问建议、看数据、普通聊天都不要调。\n"
-        "调用前先从对话里提取出类型、时长、动作明细；用户没说的字段留空。"
+        "把用户口述的**力量训练**写进记录（跑步/骑行/游泳不要调，那些由手表自动同步）。\n"
+        "**只在这两种情况调用**：(1) 用户明确说自己练了力量（「今天练了力量，"
+        "深蹲 5 组」）；(2) 用户明确要求记录力量训练。问建议、看数据、普通聊天都不要调。\n"
+        "调用前先从对话里提取出时长、动作明细；用户没说的字段留空。"
     )
     params_model = RecordParams
 
@@ -488,6 +491,12 @@ class RecordTrainingTool(Tool):
 
     async def execute(self, params: BaseModel) -> ToolResult:
         p: RecordParams = params  # type: ignore[assignment]
+        if p.train_type != "strength_training":
+            return ToolResult(
+                f"不记录 {p.train_type}：跑步/骑行/游泳以手表（佳明）为准，"
+                "会由系统自动同步，不需要手动记。只有力量训练需要手动记录。",
+                is_error=True,
+            )
         exercises = [e.model_dump(exclude_none=True) for e in (p.exercises or [])]
         result = await _in_thread(db_record_training,
             self._user_id,

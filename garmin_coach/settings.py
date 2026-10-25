@@ -62,6 +62,9 @@ class Settings:
 
     # ── 同步 ──
     sync_days_default: int = 2             # 日常同步拉几天（首次绑表才 backfill）
+    sync_fresh_ttl_minutes: int = 10       # 对话前：数据比这个旧就先同步一次
+    sync_fresh_timeout_seconds: int = 25   # 对话前同步的超时（超时就先用旧数据）
+    sync_preflight_enabled: bool = True    # 对话前是否自动同步（评测/离线环境可关）
 
 
 def load_settings() -> Settings:
@@ -72,6 +75,10 @@ def load_settings() -> Settings:
         agent_max_turns=_int("AGENT_MAX_TURNS", 8),
         agent_temperature=_float("AGENT_TEMPERATURE", 0.7),
         sync_days_default=_int("SYNC_DAYS_DEFAULT", 2),
+        sync_fresh_ttl_minutes=_int("SYNC_FRESH_TTL_MINUTES", 10),
+        sync_fresh_timeout_seconds=_int("SYNC_FRESH_TIMEOUT_SECONDS", 25),
+        sync_preflight_enabled=os.environ.get("SYNC_PREFLIGHT_ENABLED", "1").strip()
+        not in ("0", "false", "False"),
     )
 
 

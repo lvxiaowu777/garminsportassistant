@@ -31,14 +31,26 @@ def _check_provider(provider_name: str | None) -> None:
         raise RuntimeError(f"{provider.display_name} 的 API key 未配置")
 
 
-def _injected_for(user_id: int) -> list[dict] | None:
-    """长期记忆注入（读失败就退化成空，不能影响对话）。"""
+async def _injected_for(user_id: int) -> list[dict] | None:
+    """注入块：长期记忆 + 数据新鲜度（读失败就退化成空，不能影响对话）。"""
+    blocks: list[dict] = []
     try:
         from garmin_coach.services.memory import build_injected
 
-        return build_injected(user_id)
+        blocks.extend(build_injected(user_id) or [])
     except Exception:  # noqa: BLE001
-        return None
+        pass
+
+    # 跑步数据只信手表：问之前先同步一次（TTL/超时在 freshness 里控制）
+    try:
+        from garmin_coach.services.freshness import data_note, ensure_fresh
+
+        fresh = await ensure_fresh(user_id)
+        blocks.append({"role": "system", "content": data_note(fresh)})
+    except Exception:  # noqa: BLE001 - 同步失败不能挡住对话
+        pass
+
+    return blocks or None
 
 
 async def run_agent_chat(
@@ -57,11 +69,12 @@ async def run_agent_chat(
     - 抛 ``RuntimeError`` 表示没有可用 API key
     """
     _check_provider(provider_name)
+    injected = await _injected_for(user_id)
     return await get_session_manager().run_turn(
         user_id,
         message,
         hydrate=history,
-        injected=_injected_for(user_id),
+        injected=injected,
         provider_name=provider_name,
         max_turns=max_turns if max_turns is not None else settings.agent_max_turns,
         persist_user=persist_user,
@@ -83,11 +96,12 @@ async def stream_agent_chat(
     所以流式路径和非流式路径的历史记录是一致。
     """
     _check_provider(provider_name)
+    injected = await _injected_for(user_id)
     async for event in get_session_manager().stream_turn(
         user_id,
         message,
         hydrate=history,
-        injected=_injected_for(user_id),
+        injected=injected,
         provider_name=provider_name,
         max_turns=max_turns if max_turns is not None else settings.agent_max_turns,
         persist_user=persist_user,

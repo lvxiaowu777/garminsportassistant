@@ -93,6 +93,11 @@ def sync_user_garmin(user_id: int, days: int = 7) -> tuple[int, str | None]:
             print(f"  ✅ {d}")
         except Exception as e:
             print(f"  ⚠️ {d}: {type(e).__name__}: {str(e)[:120]}")
+
+    if ok:
+        from garmin_coach.db.database import mark_synced
+
+        mark_synced(user_id)
     return ok, None
 
 

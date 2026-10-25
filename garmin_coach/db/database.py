@@ -34,7 +34,7 @@ if ENV_PATH.exists():
                 key, _, val = line.partition("=")
                 os.environ.setdefault(key.strip(), val.strip())
 
-from sqlalchemy import create_engine, delete, select, func, inspect, text
+from sqlalchemy import create_engine, delete, select, func, inspect, text, update
 from sqlalchemy.dialects.mysql import insert as _mysql_insert
 from sqlalchemy.orm import sessionmaker
 
@@ -135,6 +135,7 @@ def _ensure_user_columns():
         "goal": "VARCHAR(32)", "goal_target": "VARCHAR(64)",
         "training_years": "FLOAT", "training_freq_per_week": "INT",
         "last_sync_date": "VARCHAR(10)",
+        "last_sync_at": "VARCHAR(32)",
         # 2026-08-20 新增：训练类型 + 比赛列表（JSON TEXT）
         "training_types": "TEXT",
         "races": "TEXT",
@@ -370,6 +371,39 @@ def _upsert_activity(session, date_str: str, act: dict, user_id: int = 0, brand:
 # ═══════════════════════════════════════════════
 # 查询 API
 # ═══════════════════════════════════════════════
+
+def mark_synced(user_id: int) -> None:
+    """标记这个用户刚同步过（对话前判断新鲜度用）。"""
+    session = SessionLocal()
+    try:
+        now = dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        # 用 UPDATE 而不是 upsert：users 有 NOT NULL 列（phone / password_hash），
+        # 只带 id 的 INSERT 会失败
+        session.execute(
+            update(User)
+            .where(User.id == user_id)
+            .values(last_sync_at=now, last_sync_date=now[:10])
+        )
+        session.commit()
+    except Exception:
+        session.rollback()
+    finally:
+        session.close()
+
+
+def get_last_sync_at(user_id: int) -> str:
+    """上次同步时间（'YYYY-MM-DD HH:MM:SS'），没有则空字符串。"""
+    session = SessionLocal()
+    try:
+        row = session.execute(
+            select(User.last_sync_at).where(User.id == user_id)
+        ).first()
+        return (row[0] or "") if row else ""
+    except Exception:
+        return ""
+    finally:
+        session.close()
+
 
 def get_active_brand(user_id: int = 0) -> str:
     """当前启用的手表品牌（仪表盘数据源）。返回第一个 enabled=1 的绑定，无则默认 garmin。"""
@@ -814,6 +848,13 @@ def record_training(user_id: int, train_type: str, duration_min: int, notes: str
     - **跑步/骑行等**：``activity_id = manual_{日期}_{内容指纹}``，
       同样内容重复记录就是 upsert 更新，不会多一条。
     """
+    if train_type != "strength_training":
+        # 跑步/骑行/游泳的唯一事实来源是手表同步，手动记录会造成两套数据打架
+        return {
+            "ok": False, "created": False, "activity_id": "", "added": [], "merged": [],
+            "error": f"{train_type} 以手表数据为准，不接受手动记录",
+        }
+
     date_str = date_str or dt.date.today().isoformat()
     time_str = dt.datetime.now().strftime("%H:%M")
     brand = get_active_brand(user_id)

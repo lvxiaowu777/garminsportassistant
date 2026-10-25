@@ -42,6 +42,7 @@ class User(Base):
     training_years = Column(Float)     # 训练经验（年）
     training_freq_per_week = Column(Integer)  # 训练频率（每周几次）
     last_sync_date = Column(String(10))  # 上次同步日期 YYYY-MM-DD（判断当天是否首次同步）
+    last_sync_at = Column(String(32))    # 上次同步的**时间戳**（对话前判断数据新鲜度）
     # 2026-08-20：训练类型 + 比赛列表（账号页面编辑 + AI 训练档案注入）
     training_types = Column(Text)  # JSON: ["marathon","half_marathon",...]
     races = Column(Text)           # JSON: [{"name":"上海马拉松","date":"2026-11-30"}]

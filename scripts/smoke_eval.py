@@ -16,6 +16,7 @@ import argparse
 import asyncio
 import datetime as dt
 import json
+import os
 import statistics
 import sys
 import time
@@ -23,7 +24,10 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))          # garmin_coach 包在项目根
-sys.path.insert(0, str(ROOT / "src"))  # database / auth 等旧模块在 src
+sys.path.insert(0, str(ROOT / "src"))  # 启动器还在 src
+
+# 评测不连手表：关掉"对话前自动同步"，否则每道题都会尝试登录佳明
+os.environ.setdefault("SYNC_PREFLIGHT_ENABLED", "0")
 
 CASES = [
     ("q1_today", "我今天状态怎么样？"),
