@@ -43,7 +43,9 @@ class Session:
         try:
             from garmin_coach.db.database import get_chat_history
 
-            return get_chat_history(limit, self.user_id, session_id=self.session_id) or []
+            rows = get_chat_history(limit, self.user_id, session_id=self.session_id) or []
+            # 中断占位行只给 UI 看，不进模型上下文（否则它会把报错当成自己说过的话）
+            return [r for r in rows if r.get("type") != "error"]
         except Exception as exc:  # noqa: BLE001 - 恢复失败不该让对话失败
             log.warning("session resume failed: %s: %s", self.session_id, exc)
             return []

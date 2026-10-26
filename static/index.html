@@ -149,6 +149,10 @@ input,textarea{font-family:inherit;font-size:15px}
 .msg.user .bubble{
   background:var(--accent-dim);color:#fff;border-bottom-right-radius:4px;
 }
+.bubble.error{
+  background:transparent;border:1px dashed rgba(148,163,184,.5);
+  color:var(--muted);font-size:12.5px;
+}
 .msg-avatar{
   width:30px;height:30px;border-radius:50%;flex-shrink:0;
   display:flex;align-items:center;justify-content:center;font-size:15px;
@@ -852,12 +856,15 @@ function msgHtml(m) {
     const transcript = m.content ? `<div style="margin-top:6px;font-size:13px;opacity:.9">${esc(m.content)}</div>` : '';
     body = `<div class="audio-row" data-audio="${esc(m.audio_url)}">
       <span class="audio-play">▶</span><span class="audio-bars">${bars}</span>${extra}</div>${transcript}`;
+  } else if (m.type === 'error') {
+    body = `⚠️ ${esc(m.content || '回复中断')}`;
   } else {
     body = esc(m.content || '');
   }
+  const bubbleClass = m.type === 'error' ? 'bubble error' : 'bubble';
   return `<div class="msg ${isUser ? 'user' : 'assistant'}">
     ${isUser ? '' : '<div class="msg-avatar">🤖</div>'}
-    <div class="msg-col"><div class="bubble">${body}</div>${time}</div>
+    <div class="msg-col"><div class="${bubbleClass}">${body}</div>${time}</div>
   </div>`;
 }
 

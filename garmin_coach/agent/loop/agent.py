@@ -236,12 +236,15 @@ class Agent:
                 session.append("user", user_message, **(user_record or {}))
 
             result: AgentResult | None = None
+            partial: list[str] = []
             try:
                 async for event in self._loop(
                     injected=injected_blocks,
                     on_text=on_text,
                 ):
-                    if isinstance(event, DoneEvent):
+                    if isinstance(event, TextEvent):
+                        partial.append(event.text)
+                    elif isinstance(event, DoneEvent):
                         result = event.result
                     yield event
             finally:
@@ -252,6 +255,17 @@ class Agent:
                 if result is not None:
                     session.append("assistant", result.text)
                     self._record_trace(result, int((time.perf_counter() - t0) * 1000))
+                else:
+                    # 异常 / 客户端断开 / 进程被打断：assistant 还没写。
+                    # 落一条 type=error 的占位，避免历史里只剩用户那条消息；
+                    # 它不进模型上下文（resume 会过滤掉）。
+                    text = "".join(partial).strip()
+                    note = "（这条回复没有生成完——可能是网络或模型中断，可以再发一次）"
+                    session.append(
+                        "assistant",
+                        f"{text}\n\n{note}" if text else note,
+                        msg_type="error",
+                    )
 
     async def collect(self, user_message: str, **kwargs: Any) -> AgentResult:
         """消费完事件流返回最终结果（非流式接口 / 评测用）。"""
