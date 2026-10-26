@@ -72,42 +72,44 @@ class AgentPool:
     # ── 取用 ──
 
     def get(self, user_id: int) -> Agent:
-        """拿这个用户的 Agent；没有就建一个（会 resume 今天的会话）。"""
+        """拿这个用户的 Agent；没有就建一个（会 resume 今天的会话）。
+
+        三种重建：换事件循环、跨天、池里没有。整个读写都在锁内完成，
+        因为 ``reap()`` 可能来自调度线程。
+        """
         self._maybe_reap()
         current_loop = _current_loop_id()
         today_sid = session_id_for(user_id)
+
         with self._lock:
-            return self._get_locked(user_id, current_loop, today_sid)
+            agent = self._agents.get(user_id)
 
-    def _get_locked(self, user_id: int, current_loop: int, today_sid: str) -> Agent:
-        agent = self._agents.get(user_id)
+            if agent is not None and agent.loop_id != current_loop:
+                # 换了事件循环（测试里每个请求一个 loop）：旧 Agent 的锁/客户端
+                # 绑在已关闭的 loop 上，必须重建。历史在库里，重建后 resume。
+                log.info("agent rebuilt for new event loop: user=%s", user_id)
+                self._evict(user_id)
+                agent = None
 
-        if agent is not None and agent.loop_id != current_loop:
-            # 换了事件循环（测试里每个请求一个 loop）：旧 Agent 的锁/客户端
-            # 绑在已关闭的 loop 上，必须重建。历史在库里，重建后 resume。
-            log.info("agent rebuilt for new event loop: user=%s", user_id)
-            self._evict(user_id)
-            agent = None
+            if agent is not None and agent.session_id != today_sid:
+                # 跨天但没空闲到被回收（比如 23:59 和 00:01 连着聊）：
+                # 必须换到今天的会话，否则消息会记到昨天那个 session_id 上。
+                log.info(
+                    "agent rebuilt for new day: user=%s %s -> %s",
+                    user_id, agent.session_id, today_sid,
+                )
+                self._evict(user_id)
+                agent = None
 
-        if agent is not None and agent.session_id != today_sid:
-            # 跨天但没空闲到被回收（比如 23:59 和 00:01 连着聊）：
-            # 必须换到今天的会话，否则消息会记到昨天那个 session_id 上。
-            log.info(
-                "agent rebuilt for new day: user=%s %s -> %s",
-                user_id, agent.session_id, today_sid,
-            )
-            self._evict(user_id)
-            agent = None
-
-        if agent is None:
-            agent = self._build(user_id)
-            self._agents[user_id] = agent
-            log.info(
-                "agent created: user=%s session=%s provider=%s",
-                user_id, agent.session_id, agent.provider,
-            )
-        agent.touch()
-        return agent
+            if agent is None:
+                agent = self._build(user_id)
+                self._agents[user_id] = agent
+                log.info(
+                    "agent created: user=%s session=%s provider=%s",
+                    user_id, agent.session_id, agent.provider,
+                )
+            agent.touch()
+            return agent
 
     def _build(self, user_id: int) -> Agent:
         provider = get_provider()
