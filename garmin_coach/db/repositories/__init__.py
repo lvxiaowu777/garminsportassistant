@@ -40,6 +40,7 @@ __all__ = [
     "get_last_sync_date",
     "get_latest_plan",
     "get_recent",
+    "get_sessions_of",
     "get_standard_exercise_names",
     "get_user_by_phone",
     "get_user_profile",

@@ -105,3 +105,28 @@ def _set_status(job_id: int, status: str, attempts: int | None = None) -> None:
             session.commit()
     finally:
         session.close()
+
+def enqueue_day(days_ago: int = 1) -> int:
+    """把某一天所有聊天过的会话投进待提炼队列（晚间任务用）。"""
+    import datetime as dt
+
+    from garmin_coach.db.repositories.chat import get_sessions_of
+
+    date_str = (dt.date.today() - dt.timedelta(days=days_ago)).isoformat()
+    count = 0
+    for row in get_sessions_of(date_str):
+        enqueue_session(row["user_id"], row["session_id"])
+        count += 1
+    log.info("memory enqueue day=%s sessions=%d", date_str, count)
+    return count
+
+
+def run_nightly(days_ago: int = 1) -> dict:
+    """晚间任务：投递前一天会话 → 提炼 → 治理（同步入口，给调度器用）。"""
+    import asyncio
+
+    enqueued = enqueue_day(days_ago)
+    stats = asyncio.run(process_outbox(50))
+    result = {"enqueued": enqueued, **stats}
+    log.info("memory nightly: %s", result)
+    return result

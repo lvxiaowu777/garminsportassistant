@@ -31,7 +31,7 @@ from ._base import (
     _upsert_append,
 )
 
-from .activities import _activity_row, _get_activities
+from .activities import _activity_row, _get_activities, _upsert_activity
 from .watches import get_active_brand
 
 #: 标准动作名（力量训练归一化）：(标准名, 别名, 部位)

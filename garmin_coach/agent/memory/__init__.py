@@ -11,13 +11,16 @@ outbox.py    会话结束投递 + 消费（提炼 → 写入 → 治理）
 读路径（`inject`）在对话前同步执行；写路径（`outbox` → `extract` → `manage`）
 离线执行，不占请求时间。
 """
-from .inject import build_injected, format_memory_block, humanize_age
+from .inject import build_injected, build_injection, format_memory_block, humanize_age
+from .manager import MemoryManager
 from .outbox import enqueue_session, process_outbox
 from .store import all_memories, replace_memories, top_memories, upsert_memory
 
 __all__ = [
+    "MemoryManager",
     "all_memories",
     "build_injected",
+    "build_injection",
     "enqueue_session",
     "format_memory_block",
     "humanize_age",

@@ -58,3 +58,26 @@ def build_injected(user_id: int, limit: int = DEFAULT_LIMIT) -> list[dict]:
     if not block:
         return []
     return [{"role": "system", "content": block}]
+
+
+async def build_injection(user_id: int) -> list[dict]:
+    """本轮注入块的完整内容：长期记忆 + 数据新鲜度。
+
+    两条都"尽力而为"：任一条失败就少一条，绝不影响对话。
+    """
+    blocks: list[dict] = []
+
+    try:
+        blocks.extend(build_injected(user_id) or [])
+    except Exception:  # noqa: BLE001 - 记忆读失败不能让对话失败
+        pass
+
+    try:
+        from garmin_coach.services.freshness import data_note, ensure_fresh
+
+        fresh = await ensure_fresh(user_id)
+        blocks.append({"role": "system", "content": data_note(fresh)})
+    except Exception:  # noqa: BLE001 - 同步失败不能挡住对话
+        pass
+
+    return blocks

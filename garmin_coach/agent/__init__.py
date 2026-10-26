@@ -1,22 +1,19 @@
-"""Agent 层 —— 一个会话一个实例，`run()` 是事件生成器。
-
-子包划分（对应文件组织）：
+"""Agent 层 —— **Agent 是组合根**，持有 CM / SessionManager / 工具 / 提示词 / 记忆 / trace。
 
 ```
-loop/          Agent 循环 + Agent 层事件
-session/       Session 数据 + SessionManager（生命周期 / 落库 / 恢复 / 回收）
+loop/          Agent（组合根 + 核心 loop）+ Agent 层事件
+session/       Session（数据通道：resume/append/close）+ SessionManager（生命周期）
 conversation/  消息本 + 协议合法化（serialize）
-prompts/       系统提示词（唯一一份）
+prompts/       提示词提供者（PromptProvider）
 tools/         工具基类 / 注册表 / 具体工具
 llmclient/     传输层：OpenAI 兼容 / Anthropic 原生 / 配置 / 工厂
 memory/        长期记忆：存储 / 注入 / 提炼 / 管理 / outbox
-bridge.py      HTTP 层调用的入口（装配会话，供路由调用）
+pool.py        AgentPool：每用户一个 Agent，空闲 1h 回收
 ```
 
-设计要点：这一层**不碰 HTTP**。数据通过工具拿，结果通过事件给，
-所以它可以直接被单元测试驱动（用假 LLM 和假工具）。
+路由只认 ``get_agent(user_id)``；Agent 的 ``run()`` 是唯一入口，
+落库、trace、会话恢复都在它内部完成。
 """
-from .bridge import get_session_manager, run_agent_chat, stream_agent_chat
 from .conversation import ConversationManager, serialize_messages
 from .loop import (
     Agent,
@@ -32,16 +29,21 @@ from .loop import (
     ToolResultEvent,
     to_sse,
 )
-from .prompts import build_system_prompt
-from .session import Session, SessionManager, session_id_for
+from .memory import MemoryManager
+from .pool import AgentPool, get_agent, get_agent_pool
+from .prompts import PromptProvider, build_system_prompt
+from .session import Session, SessionManager, get_session_manager, session_id_for
 
 __all__ = [
     "Agent",
     "AgentEvent",
+    "AgentPool",
     "AgentResult",
     "ConversationManager",
     "DoneEvent",
     "ErrorEvent",
+    "MemoryManager",
+    "PromptProvider",
     "Session",
     "SessionManager",
     "Step",
@@ -51,10 +53,10 @@ __all__ = [
     "ToolCallRecord",
     "ToolResultEvent",
     "build_system_prompt",
+    "get_agent",
+    "get_agent_pool",
     "get_session_manager",
-    "run_agent_chat",
     "serialize_messages",
     "session_id_for",
-    "stream_agent_chat",
     "to_sse",
 ]

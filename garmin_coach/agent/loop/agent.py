@@ -43,7 +43,8 @@ from .events import (
     ToolCallRecord,
     ToolResultEvent,
 )
-from ..prompts import build_system_prompt
+from ..prompts import PromptProvider
+from ..session.store import Session
 
 log = logging.getLogger(__name__)
 
@@ -63,63 +64,118 @@ __all__ = [
 
 
 class Agent:
-    """带工具调用能力的对话 Agent。
+    """Agent —— **组合根 + 核心 loop**。
 
-    参数说明：
-    - ``llm``：**共享**的传输层客户端（按 provider 缓存，不要每个 Agent 一个）
-    - ``registry``：每个用户一套（工具绑定了 user_id），不能跨用户复用
-    - ``user_id`` / ``session_id``：身份标识，CM 和日志用
-    - ``max_turns``：最多几轮「模型 ↔ 工具」往返。设上限是为了防止模型
-      在两个工具之间无限来回（真实发生过）。到上限就带着已有文本收尾。
+    一个用户一个实例，由 ``AgentPool`` 持有，空闲 1 小时回收。
 
-    **生命周期**：一个实例对应一个会话，由 ``SessionManager`` 持有；
-    CM 在构造时创建，跨轮次存活，不再每次 run 重建。
+    它持有：
+    - ``llm``：传输层客户端（按 provider 共享）
+    - ``registry``：工具表（绑定 user_id）
+    - ``prompts``：提示词提供者（依赖注入）
+    - ``sessions``：会话管理器（拿 Session、落库、恢复）
+    - ``memory``：长期记忆（注入 + 提炼）
+    - ``tracer``：运行轨迹（agent_runs / agent_steps）
+    - ``conv``：对话管理器（跟着 Agent 活，1 小时内的多轮共用）
+
+    ``run()`` 是唯一入口：落 user → 循环（模型 ↔ 工具）→ 落 assistant → trace。
     """
 
     def __init__(
         self,
         llm: LLMClient,
         registry: ToolRegistry,
+        prompts: "PromptProvider",
+        sessions: "SessionManager",
         *,
         user_id: int = 0,
-        session_id: str = "",
+        provider: str = "",
+        memory: Any = None,
+        tracer: Any = None,
         max_turns: int = 8,
         temperature: float = 0.7,
         max_tokens: int = 4096,
     ) -> None:
         self._llm = llm
         self._registry = registry
+        self._prompts = prompts
+        self._sessions = sessions
+        self._memory = memory
+        self._tracer = tracer
         self.user_id = user_id
-        self.session_id = session_id
-        self._conv = ConversationManager(user_id=user_id, session_id=session_id)
-        self._lock = asyncio.Lock()
+        self.provider = provider
         self._max_turns = max_turns
         self._temperature = temperature
         self._max_tokens = max_tokens
-        # 注入块（快照摘要 / 记忆 / 提醒）：放在 system 之后、对话之前。
-        # 由外部每轮换（Agent 不自己拼业务数据）。
+        # 构造时就绑定会话：Agent 是会话的持有者，session_id 立刻可用
+        self._session: Session = sessions.open(user_id)
+        self._conv = ConversationManager(user_id=user_id, session_id=self._session.session_id)
+        self._lock = asyncio.Lock()
+        self._resumed = False
         self._injected: list[dict[str, Any]] = []
+        self.turns = 0
+        self.last_active = time.time()
+
+    # ── 身份 / 生命周期 ──
+
+    @property
+    def session_id(self) -> str:
+        return self._session.session_id
 
     @property
     def conversation(self) -> ConversationManager:
         return self._conv
 
-    def set_injected(self, injected: list[dict[str, Any]] | None) -> None:
-        """设置本轮的注入块（如「今日档位 EASY / 数据截至 07:30」）。
+    @property
+    def idle_seconds(self) -> float:
+        return time.time() - self.last_active
 
-        注入块不计入 CM，也不会落库 —— 它只影响这一次请求的 payload。
-        """
+    def touch(self) -> None:
+        self.last_active = time.time()
+
+    def detach_session(self) -> None:
+        """只断开引用、不触发 close（清空历史 / 评测重置时用）。"""
+        self._session = self._sessions.open(self.user_id)
+        self._conv = ConversationManager(
+            user_id=self.user_id, session_id=self._session.session_id
+        )
+        self._resumed = False
+
+    def close(self) -> None:
+        """Agent 被回收：关闭会话（投记忆提炼任务）。"""
+        if self._session is not None:
+            self._session.close()
+
+    # ── 会话（构造时已绑定，历史只恢复一次）──
+
+    def _ensure_session(self) -> Session:
+        if not self._resumed:
+            self._resumed = True
+            history = self._session.resume()
+            if history:
+                self._conv.load_history(history)
+        self._session.touch()
+        return self._session
+
+    # ── 注入 ──
+
+    def set_injected(self, injected: list[dict[str, Any]] | None) -> None:
+        """覆盖本轮注入块（测试用；默认由 memory 构建）。"""
         self._injected = list(injected or [])
 
-    def _payload(self, system: str | None) -> list[dict[str, Any]]:
-        """拼出最终发给模型的 messages 数组（**直接可 JSON 化**）。
+    async def _build_injected(self) -> list[dict[str, Any]]:
+        if self._injected:
+            return self._injected
+        if self._memory is None:
+            return []
+        try:
+            return await self._memory.build_injection()
+        except Exception as exc:  # noqa: BLE001 - 注入失败不能挡住对话
+            log.warning("injection failed: user=%s: %s", self.user_id, exc)
+            return []
 
-        顺序：system → 注入块 → 会话消息。system 也在这里进数组，
-        而不是交给传输层再加一层前缀。
-        """
-        payload: list[dict[str, Any]] = []
-        if system:
-            payload.append({"role": "system", "content": system})
+    def _payload(self, system: str) -> list[dict[str, Any]]:
+        """system → 注入块 → 会话消息（直接可 JSON 化）。"""
+        payload: list[dict[str, Any]] = [{"role": "system", "content": system}]
         payload.extend(self._injected)
         payload.extend(self._conv.serialize())
         return payload
@@ -129,42 +185,85 @@ class Agent:
     async def run(
         self,
         user_message: str,
-        hydrate: list[dict] | None = None,
         *,
+        persist_user: bool = True,
         injected: list[dict[str, Any]] | None = None,
-        system_prompt: str | None = None,
         on_text: Any = None,
     ) -> AsyncIterator[AgentEvent]:
-        """跑一轮，**逐事件产出**（TextEvent / ToolCallEvent / DoneEvent…）。
+        """跑一轮，逐事件产出。
 
-        - ``hydrate``：首次使用时从数据库补历史（只补一次，之后全靠内存）
-        - ``injected``：本轮注入块（快照/记忆/提醒），只影响本次请求
-        - ``on_text``：兼容旧回调，等价于消费 TextEvent
-        - 同一实例的并发调用被锁串行化，消息不会交错
+        - ``persist_user=False``：调用方已经写过 user 消息（语音带 audio_url）
+        - ``injected``：覆盖本轮注入块；不传则用 memory 构建
         """
-        if hydrate and not self._conv.messages:
-            self._conv.load_history(hydrate)
-        if injected is not None:
-            self.set_injected(injected)
+        session = self._ensure_session()
+        self._injected = list(injected) if injected is not None else []
+        injected_blocks = await self._build_injected()
+
         async with self._lock:
-            async for event in self._run(
-                user_message, system_prompt=system_prompt, on_text=on_text
-            ):
-                yield event
+            t0 = time.perf_counter()
+            self._conv.add_user(user_message)
+            if persist_user:
+                session.append("user", user_message)
+
+            result: AgentResult | None = None
+            try:
+                async for event in self._loop(
+                    system_prompt=None,
+                    injected=injected_blocks,
+                    on_text=on_text,
+                ):
+                    if isinstance(event, DoneEvent):
+                        result = event.result
+                    yield event
+            finally:
+                self.turns += 1
+                self.touch()
+                session.turns += 1
+                session.touch()
+                if result is not None:
+                    session.append("assistant", result.text)
+                    self._record_trace(result, int((time.perf_counter() - t0) * 1000))
+
+    async def collect(self, user_message: str, **kwargs: Any) -> AgentResult:
+        """消费完事件流返回最终结果（非流式接口 / 评测用）。"""
+        result: AgentResult | None = None
+        async for event in self.run(user_message, **kwargs):
+            if isinstance(event, DoneEvent):
+                result = event.result
+        return result or AgentResult(text="", turns=0)
+
+    # ── trace ──
+
+    def _record_trace(self, result: AgentResult, elapsed_ms: int) -> None:
+        if self._tracer is None:
+            return
+        try:
+            self._tracer(
+                user_id=self.user_id,
+                session_id=self.session_id,
+                provider=self.provider,
+                turns=result.turns,
+                total_tokens=int(result.usage.get("total_tokens", 0)),
+                latency_ms=elapsed_ms,
+                error=result.error,
+                steps=result.steps,
+                tool_calls=result.tool_calls,
+            )
+        except Exception as exc:  # noqa: BLE001
+            log.warning("trace record failed: %s: %s", self.session_id, exc)
 
     # ── 内部：真正的循环 ──
 
-    async def _run(
+    async def _loop(
         self,
-        user_message: str,
         *,
         system_prompt: str | None = None,
+        injected: list[dict[str, Any]] | None = None,
         on_text: Any = None,
     ) -> AsyncIterator[AgentEvent]:
         conv = self._conv
-        conv.add_user(user_message)
-
-        system = system_prompt or build_system_prompt()
+        self._injected = list(injected or [])
+        system = system_prompt or self._prompts.build()
         tool_specs = self._registry.specs()
         records: list[ToolCallRecord] = []
         steps: list[Step] = []

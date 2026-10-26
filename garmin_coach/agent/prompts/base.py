@@ -164,3 +164,20 @@ def build_system_prompt(now: dt.datetime | None = None) -> str:
     return BASE_PROMPT + _time_block(now)
 
 
+class PromptProvider:
+    """提示词依赖：Agent 构造时注入，方便替换 / 追加段落 / 测试。
+
+    以后挂 hook（往 system 里追加临时段落）只改这里，Agent 的 loop 不用动。
+    """
+
+    def __init__(self, base: str | None = None) -> None:
+        self._base = base
+
+    def build(self, now: dt.datetime | None = None, extra: list[str] | None = None) -> str:
+        """基础提示词 + 时间块 + 额外段落。"""
+        prompt = (self._base if self._base is not None else BASE_PROMPT) + _time_block(now)
+        for part in extra or []:
+            prompt += f"\n\n{part.strip()}"
+        return prompt
+
+

@@ -68,9 +68,9 @@ async def api_clear_chat(user_id: int = Depends(require_user)):
     **同时丢掉内存里的会话**：只删库不清内存的话，模型下一句还记得刚删掉的内容。
     """
     clear_chat_history(user_id)
-    from garmin_coach.agent.session import get_session_manager
+    from garmin_coach.agent import get_agent_pool
 
-    get_session_manager().drop(user_id)
+    get_agent_pool().drop(user_id)
     return {"ok": True}
 
 
@@ -99,7 +99,7 @@ async def api_chat_voice(
     语音消息和文字消息的唯一区别是落库时带 `type=voice` + `audio_url`，
     所以这里自己写 user 那一行，Agent 那边 `persist_user=False` 避免重复。
     """
-    from garmin_coach.agent.bridge import run_agent_chat
+    from garmin_coach.agent import get_agent
 
     audio_bytes = await file.read()
 
@@ -115,16 +115,15 @@ async def api_chat_voice(
     if not text:
         raise HTTPException(500, "语音识别失败，请重试")
 
-    sid = session_id_for(user_id)
-    add_chat("user", text, user_id, msg_type="voice", audio_url=audio_url,
-             duration_sec=duration_sec, session_id=sid)
-
     try:
-        result = await run_agent_chat(
+        agent = get_agent(user_id)
+        result = await agent.collect(
             text,
-            user_id,
-            history=get_chat_history(20, user_id, session_id=sid),
-            persist_user=False,
+            user_record={
+                "msg_type": "voice",
+                "audio_url": audio_url,
+                "duration_sec": duration_sec,
+            },
         )
     except RuntimeError as exc:
         raise HTTPException(503, str(exc)) from exc
@@ -150,10 +149,10 @@ async def api_chat(req: ChatRequest, user_id: int = Depends(require_user)):
     落库（user / assistant）和 trace 都由 ``SessionManager`` 负责，
     路由这里不再写数据库。
     """
-    from garmin_coach.agent.bridge import run_agent_chat
+    from garmin_coach.agent import get_agent
 
     try:
-        result = await run_agent_chat(req.message, user_id)
+        result = await get_agent(user_id).collect(req.message)
     except RuntimeError as exc:  # 没有可用 API key
         raise HTTPException(503, str(exc)) from exc
 
@@ -177,11 +176,11 @@ async def api_chat_stream(req: ChatRequest, user_id: int = Depends(require_user)
     用 POST + ``Authorization`` 头（浏览器 EventSource 做不到），
     前端用 ``fetch`` + ``response.body.getReader()`` 消费。
     """
-    from garmin_coach.agent.bridge import stream_agent_chat
+    from garmin_coach.agent import get_agent
 
     async def gen():
         try:
-            async for event in stream_agent_chat(req.message, user_id):
+            async for event in get_agent(user_id).run(req.message):
                 payload = json.dumps(to_sse(event), ensure_ascii=False)
                 yield f"data: {payload}\n\n"
         except Exception as exc:  # noqa: BLE001 - 流里的错误也要能传到前端
@@ -218,7 +217,7 @@ async def ws_chat(ws: WebSocket):
 
     注意：`user_id` 仍取自客户端消息体（S1 待修：握手时验 token）。
     """
-    from garmin_coach.agent.bridge import stream_agent_chat
+    from garmin_coach.agent import get_agent
 
     await ws.accept()
     try:
@@ -237,7 +236,7 @@ async def ws_chat(ws: WebSocket):
             ))
 
             reply_parts: list[str] = []
-            async for event in stream_agent_chat(message, user_id):
+            async for event in get_agent(user_id).run(message):
                 if isinstance(event, TextEvent):
                     reply_parts.append(event.text)
                     await ws.send_text(json.dumps(

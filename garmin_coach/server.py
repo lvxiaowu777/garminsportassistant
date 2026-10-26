@@ -72,7 +72,8 @@ def start_scheduler() -> None:
     """定时任务：同步 / 清理 / 会话回收 / 推送。"""
     from apscheduler.schedulers.background import BackgroundScheduler
 
-    from .agent.session import get_session_manager
+    from .agent import get_agent_pool
+    from .agent.memory.outbox import run_nightly
     from .db.database import cleanup_old_chat
     from .integrations.garmin_sync import sync_all_users
     from .integrations.push import check_and_notify
@@ -87,22 +88,27 @@ def start_scheduler() -> None:
         sync_all_users, "cron", hour=2, minute=7,
         id="garmin_sync_daily", kwargs={"days": 7},
     )
-    # 聊天记录清理：每天 3:07
+    # 聊天记录清理：每天 3:07（保留 30 天）
     scheduler.add_job(
         cleanup_old_chat, "cron", hour=3, minute=7,
-        id="chat_cleanup", kwargs={"days": 7},
+        id="chat_cleanup", kwargs={"days": 30},
     )
-    # 会话回收：按 settings.session_reap_interval_seconds 扫描空闲会话
+    # 记忆提炼：每天 4:07 —— 前一天聊天 → 记忆 → 治理
     scheduler.add_job(
-        get_session_manager().reap,
+        run_nightly, "cron", hour=4, minute=7,
+        id="memory_nightly",
+    )
+    # Agent 回收：按 settings.session_reap_interval_seconds 扫描空闲 Agent（默认 1h）
+    scheduler.add_job(
+        get_agent_pool().reap,
         "interval",
         seconds=settings.session_reap_interval_seconds,
-        id="session_reap",
+        id="agent_reap",
     )
     scheduler.start()
     print(
-        "🔔 定时任务已启动（同步 2:07 / 清理 3:07 / "
-        f"会话回收 {settings.session_reap_interval_seconds}s / 推送 8:07、19:07）"
+        "🔔 定时任务已启动（同步 2:07 / 清理 3:07(30天) / 记忆提炼 4:07 / "
+        f"Agent 回收 {settings.session_reap_interval_seconds}s / 推送 8:07、19:07）"
     )
 
 

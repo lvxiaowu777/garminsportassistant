@@ -4,6 +4,7 @@ from __future__ import annotations
 import datetime as dt
 import hashlib
 import json
+from pathlib import Path
 from typing import Optional
 
 from sqlalchemy import delete, func, inspect, select, text, update
@@ -105,7 +106,7 @@ def get_chat_dates(user_id: int = 0, days: int = 7) -> list[str]:
         session.close()
 
 
-def cleanup_old_chat(days: int = 7):
+def cleanup_old_chat(days: int = 30):
     """删除 days 天前的聊天记录，含语音音频文件。"""
     session = SessionLocal()
     try:
@@ -119,7 +120,7 @@ def cleanup_old_chat(days: int = 7):
             )
         ).all()
         # 2. 删除音频文件
-        audio_dir = Path(__file__).resolve().parent.parent / "static" / "audio"
+        audio_dir = Path(__file__).resolve().parents[3] / "static" / "audio"
         for r in rows:
             url = r[0] or ""
             filename = url.rsplit("/", 1)[-1] if url else ""
@@ -151,3 +152,34 @@ def clear_chat_history(user_id: int = 0):
 # ═══════════════════════════════════════════════
 # 手动训练记录
 # ═══════════════════════════════════════════════
+
+
+def get_sessions_of(date_str: str) -> list[dict]:
+    """取某一天所有聊天过的会话（晚间记忆提炼用）。
+
+    返回 ``[{session_id, user_id, messages}]``，按用户去重。
+    """
+    session = SessionLocal()
+    try:
+        day_start = f"{date_str} 00:00:00"
+        day_end = f"{date_str} 23:59:59"
+        rows = session.execute(
+            select(
+                ChatHistory.session_id,
+                ChatHistory.user_id,
+                func.count(ChatHistory.id),
+            )
+            .where(
+                ChatHistory.created_at >= day_start,
+                ChatHistory.created_at <= day_end,
+                ChatHistory.session_id.isnot(None),
+            )
+            .group_by(ChatHistory.session_id, ChatHistory.user_id)
+        ).all()
+        return [
+            {"session_id": r[0], "user_id": r[1], "messages": r[2]}
+            for r in rows
+            if r[0]
+        ]
+    finally:
+        session.close()

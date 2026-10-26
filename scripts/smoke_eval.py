@@ -48,18 +48,17 @@ def parse_args() -> argparse.Namespace:
 
 
 async def run_all(user_id: int, repeat: int) -> list[dict]:
-    from garmin_coach.agent.bridge import run_agent_chat
-    from garmin_coach.agent.session import get_session_manager
+    from garmin_coach.agent import get_agent_pool
 
-    manager = get_session_manager()
+    pool = get_agent_pool()
     rows: list[dict] = []
     for round_no in range(1, repeat + 1):
         for case_id, question in CASES:
             # 评测隔离：内存 + 库 + 长期记忆一起清（见 SessionManager.reset）
-            manager.reset(user_id, wipe_memory=True)
+            pool.reset(user_id, wipe_memory=True)
             t0 = time.perf_counter()
             try:
-                result = await run_agent_chat(question, user_id, history=None)
+                result = await pool.get(user_id).collect(question)
                 elapsed = int((time.perf_counter() - t0) * 1000)
                 row = {
                     "case": case_id,
