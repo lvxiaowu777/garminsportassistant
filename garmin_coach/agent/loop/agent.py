@@ -135,12 +135,12 @@ class Agent:
 
     # ── 注入 ──
 
-    async def _build_injected(
-        self, injected: list[dict[str, Any]] | None
-    ) -> list[dict[str, Any]]:
-        """本轮注入块：调用方给了就用；否则问 memory 要（记忆 + 数据时间）。"""
-        if injected is not None:
-            return list(injected)
+    async def _build_injected(self) -> list[dict[str, Any]]:
+        """本轮上下文块：记忆 + 数据新鲜度。
+
+        这里是**唯一来源**。以后加 hook（比赛倒计时、临时提醒），也在这里
+        追加段落，而不是给调用方开一个覆盖口子。
+        """
         if self._memory is None:
             return []
         try:
@@ -191,16 +191,14 @@ class Agent:
         user_message: str,
         *,
         user_record: dict[str, Any] | None = None,
-        injected: list[dict[str, Any]] | None = None,
         on_text: Any = None,
     ) -> AsyncIterator[AgentEvent]:
         """跑一轮，逐事件产出。
 
         - ``user_record``：落库时附带的字段（语音：msg_type / audio_url / duration_sec）
-        - ``injected``：覆盖本轮注入块；不传则用 memory 构建
         """
         self._conv.load()
-        injected_blocks = await self._build_injected(injected)
+        injected_blocks = await self._build_injected()
 
         async with self._lock:
             t0 = time.perf_counter()
