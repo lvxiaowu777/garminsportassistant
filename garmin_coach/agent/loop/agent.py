@@ -191,7 +191,6 @@ class Agent:
         user_message: str,
         *,
         user_record: dict[str, Any] | None = None,
-        on_text: Any = None,
     ) -> AsyncIterator[AgentEvent]:
         """跑一轮，逐事件产出。
 
@@ -208,10 +207,7 @@ class Agent:
             result: AgentResult | None = None
             partial: list[str] = []
             try:
-                async for event in self._loop(
-                    injected=injected_blocks,
-                    on_text=on_text,
-                ):
+                async for event in self._loop(injected=injected_blocks):
                     if isinstance(event, TextEvent):
                         partial.append(event.text)
                     elif isinstance(event, DoneEvent):
@@ -264,7 +260,6 @@ class Agent:
         self,
         *,
         injected: list[dict[str, Any]] | None = None,
-        on_text: Any = None,
     ) -> AsyncIterator[AgentEvent]:
         conv = self._conv
         injected = list(injected or [])
@@ -290,8 +285,6 @@ class Agent:
             ):
                 if isinstance(event, TextDelta):
                     text_parts.append(event.text)
-                    if on_text is not None:
-                        on_text(event.text)
                     yield TextEvent(turn, event.text)
                 elif isinstance(event, ThinkingDelta):
                     log.debug("thinking: %s", event.text[:200])
