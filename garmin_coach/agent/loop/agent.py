@@ -175,24 +175,24 @@ class Agent:
             return []
 
     def _messages(self, injected: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        """历史消息 → 本轮上下文（user）→ 当前用户消息。
+        """历史消息 → 本轮上下文（user）→ 本轮用户消息 → 工具往返。
 
         只负责 messages；system 由 ``self._system_prompt`` 单独传给传输层
         （每个协议自己去摊到 system 字段 / system message）。
 
-        动态内容（时间 / 记忆 / 数据截至）放在最后一条用户消息之前：
-        system 保持稳定以命中缓存，上下文又跟着本轮走。
+        上下文插在**本轮那条用户消息之前**（不是插到队尾）：
+        一轮里可能有多次工具往返，插队尾会变成"tool_result 后面又来一条 user"，
+        语义也错位；插在本轮用户消息前，表达的是"用户说这句话时的
+        时间 / 记忆 / 数据"。
         """
         context = self._context_message(injected)
         messages = self._conv.serialize()
-
         if not context:
             return messages
-        if messages and messages[-1].get("role") == "user":
-            return messages[:-1] + [
-                {"role": "user", "content": context},
-                messages[-1],
-            ]
+
+        for i in range(len(messages) - 1, -1, -1):
+            if messages[i].get("role") == "user":
+                return messages[:i] + [{"role": "user", "content": context}] + messages[i:]
         return messages + [{"role": "user", "content": context}]
 
     @staticmethod
