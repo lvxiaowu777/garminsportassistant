@@ -56,10 +56,9 @@ class ConversationManager:
     def load_history(self, history: list[dict] | None, limit: int = 20) -> None:
         """把历史消息并进来（数据库只存 user/assistant 纯文本）。
 
-        清洗规则（发出去的消息必须合法）：
-        1. 只收 user / assistant（tool 属于某一轮，不跨请求）；
-        2. **相邻同角色合并** —— 崩溃可能留下 `user, user`，合并更稳；
-        3. 丢掉空内容。
+        这里只做**过滤**：只收 user / assistant（tool 属于某一轮，不跨请求），
+        丢掉空内容。**相邻同角色合并留给 ``serialize()``**——那是发送前唯一的
+        规整入口，恢复阶段不做二次加工，内存里的消息与库里一一对应。
         """
         if not history:
             return
@@ -70,12 +69,7 @@ class ConversationManager:
             content = (item.get("content") or "").strip()
             if not content:
                 continue
-            if self.messages and self.messages[-1]["role"] == role:
-                self.messages[-1]["content"] = (
-                    f"{self.messages[-1]['content']}\n{content}"
-                )
-            else:
-                self.messages.append({"role": role, "content": content})
+            self.messages.append({"role": role, "content": content})
 
     # ── 写：进内存 + 落库 ──
 
