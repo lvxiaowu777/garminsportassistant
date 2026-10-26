@@ -142,28 +142,6 @@ async def api_chat_voice(
 
 # ── 文字（非流式）──
 
-@router.post("/api/chat")
-async def api_chat(req: ChatRequest, user_id: int = Depends(require_user)):
-    """非流式对话：内部消费 Agent 事件流，返回最终结果。
-
-    落库（user / assistant）和 trace 都由 ``SessionManager`` 负责，
-    路由这里不再写数据库。
-    """
-    from garmin_coach.agent import get_agent
-
-    try:
-        result = await get_agent(user_id).collect(req.message)
-    except RuntimeError as exc:  # 没有可用 API key
-        raise HTTPException(503, str(exc)) from exc
-
-    recorded = any(c.name == "record_training" for c in result.tool_calls)
-    log.info(
-        "[agent] user=%s turns=%s tools=%s chars=%s",
-        user_id, result.turns, result.tools_used, len(result.text),
-    )
-    return {"reply": result.text, "context": {}, "recorded": recorded}
-
-
 # ── 文字（流式 SSE）──
 
 @router.post("/api/chat/stream")
