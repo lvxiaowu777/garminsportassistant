@@ -23,7 +23,7 @@ from garmin_coach.agent.llmclient.factory import get_shared_client
 from garmin_coach.agent.loop import Agent
 from garmin_coach.agent.memory import MemoryManager
 from garmin_coach.agent.prompts import PromptProvider
-from garmin_coach.agent.session import SessionManager, get_session_manager
+from garmin_coach.agent.session import SessionManager, get_session_manager, session_id_for
 from garmin_coach.agent.tools.health import build_default_registry
 from garmin_coach.settings import settings
 
@@ -69,13 +69,26 @@ class AgentPool:
         """拿这个用户的 Agent；没有就建一个（会 resume 今天的会话）。"""
         self._maybe_reap()
         current_loop = _current_loop_id()
+        today_sid = session_id_for(user_id)
         agent = self._agents.get(user_id)
+
         if agent is not None and agent.loop_id != current_loop:
             # 换了事件循环（测试里每个请求一个 loop）：旧 Agent 的锁/客户端
             # 绑在已关闭的 loop 上，必须重建。历史在库里，重建后 resume。
             log.info("agent rebuilt for new event loop: user=%s", user_id)
             self._evict(user_id)
             agent = None
+
+        if agent is not None and agent.session_id != today_sid:
+            # 跨天但没空闲到被回收（比如 23:59 和 00:01 连着聊）：
+            # 必须换到今天的会话，否则消息会记到昨天那个 session_id 上。
+            log.info(
+                "agent rebuilt for new day: user=%s %s -> %s",
+                user_id, agent.session_id, today_sid,
+            )
+            self._evict(user_id)
+            agent = None
+
         if agent is None:
             agent = self._build(user_id)
             self._agents[user_id] = agent
