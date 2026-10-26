@@ -187,12 +187,14 @@ class Agent:
         user_message: str,
         *,
         persist_user: bool = True,
+        user_record: dict[str, Any] | None = None,
         injected: list[dict[str, Any]] | None = None,
         on_text: Any = None,
     ) -> AsyncIterator[AgentEvent]:
         """跑一轮，逐事件产出。
 
-        - ``persist_user=False``：调用方已经写过 user 消息（语音带 audio_url）
+        - ``persist_user=False``：调用方已经写过 user 消息
+        - ``user_record``：落库时附带的字段（语音：msg_type / audio_url / duration_sec）
         - ``injected``：覆盖本轮注入块；不传则用 memory 构建
         """
         session = self._ensure_session()
@@ -203,7 +205,7 @@ class Agent:
             t0 = time.perf_counter()
             self._conv.add_user(user_message)
             if persist_user:
-                session.append("user", user_message)
+                session.append("user", user_message, **(user_record or {}))
 
             result: AgentResult | None = None
             try:
