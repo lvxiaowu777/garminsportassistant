@@ -98,6 +98,9 @@ class Agent:
         self._llm = llm
         self._registry = registry
         self._prompts = prompts
+        # system 是稳定的（不含时间/记忆），构造时构建一次即可；
+        # 以后 hook 要追加段落，就在这里改成每轮 build(extra=...)。
+        self._system_prompt = prompts.build()
         self._sessions = sessions
         self._memory = memory
         self._tracer = tracer
@@ -171,26 +174,26 @@ class Agent:
             log.warning("injection failed: user=%s: %s", self.user_id, exc)
             return []
 
-    def _payload(self, system: str, injected: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        """system → 历史消息 → 本轮上下文（user）→ 当前用户消息。
+    def _messages(self, injected: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """历史消息 → 本轮上下文（user）→ 当前用户消息。
 
-        动态内容（时间 / 记忆 / 数据截至）**不放 system**：system 要保持稳定，
-        否则 Anthropic 的显式 cache 断点和 OpenAI 的隐式前缀缓存都会失效。
-        上下文放在最后一条用户消息之前，既语义自然，又能让前面的前缀命中缓存。
+        只负责 messages；system 由 ``self._system_prompt`` 单独传给传输层
+        （每个协议自己去摊到 system 字段 / system message）。
+
+        动态内容（时间 / 记忆 / 数据截至）放在最后一条用户消息之前：
+        system 保持稳定以命中缓存，上下文又跟着本轮走。
         """
         context = self._context_message(injected)
         messages = self._conv.serialize()
-        payload: list[dict[str, Any]] = [{"role": "system", "content": system}]
 
-        if context and messages and messages[-1].get("role") == "user":
-            payload.extend(messages[:-1])
-            payload.append({"role": "user", "content": context})
-            payload.append(messages[-1])
-        else:
-            payload.extend(messages)
-            if context:
-                payload.append({"role": "user", "content": context})
-        return payload
+        if not context:
+            return messages
+        if messages and messages[-1].get("role") == "user":
+            return messages[:-1] + [
+                {"role": "user", "content": context},
+                messages[-1],
+            ]
+        return messages + [{"role": "user", "content": context}]
 
     @staticmethod
     def _context_message(injected: list[dict[str, Any]]) -> str:
@@ -235,7 +238,6 @@ class Agent:
             result: AgentResult | None = None
             try:
                 async for event in self._loop(
-                    system_prompt=None,
                     injected=injected_blocks,
                     on_text=on_text,
                 ):
@@ -284,13 +286,11 @@ class Agent:
     async def _loop(
         self,
         *,
-        system_prompt: str | None = None,
         injected: list[dict[str, Any]] | None = None,
         on_text: Any = None,
     ) -> AsyncIterator[AgentEvent]:
         conv = self._conv
         injected = list(injected or [])
-        system = system_prompt or self._prompts.build()
         tool_specs = self._registry.specs()
         records: list[ToolCallRecord] = []
         steps: list[Step] = []
@@ -305,8 +305,8 @@ class Agent:
 
             t_llm = time.perf_counter()
             async for event in self._llm.stream(
-                self._payload(system, injected),
-                system=None,          # system 已经在 payload 里，传输层不再重复拼
+                self._messages(injected),
+                system=self._system_prompt,
                 tools=tool_specs or None,
                 temperature=self._temperature,
                 max_tokens=self._max_tokens,
