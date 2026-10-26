@@ -1,14 +1,13 @@
-"""对话：历史 / 语音 / 文字 / 流式 / WebSocket。
+"""对话：历史 / 语音 / 流式（SSE）。
 
 **所有对话都走同一条 Agent 链路**（`garmin_coach.agent`）：
 模型自己决定查什么数据、要不要记录、要不要存计划。
 
 | 端点 | 形态 |
 |---|---|
-| `POST /api/chat` | 非流式，返回 `{reply, recorded}` |
-| `POST /api/chat/stream` | SSE，转发 Agent 层事件 |
-| `POST /api/chat/voice` | 语音：ASR → 同一个 Agent → 落语音消息 |
-| `WS /ws/chat` | 流式，帧格式兼容旧客户端（token / done / error） |
+| `POST /api/chat/stream` | SSE，转发 Agent 层事件（唯一流式通道） |
+| `POST /api/chat/voice` | 语音：ASR → 同一个 Agent → 一次 JSON |
+| `GET/DELETE /api/chat/history` | 历史查询 / 清空 |
 """
 from __future__ import annotations
 
@@ -16,16 +15,7 @@ import datetime as dt
 import json
 from pathlib import Path
 
-from fastapi import (
-    APIRouter,
-    Depends,
-    File,
-    Form,
-    HTTPException,
-    UploadFile,
-    WebSocket,
-    WebSocketDisconnect,
-)
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from fastapi.responses import StreamingResponse
 
 from ..deps import AUDIO_DIR, log, require_user
@@ -177,62 +167,3 @@ async def api_chat_stream(req: ChatRequest, user_id: int = Depends(require_user)
             "X-Accel-Buffering": "no",   # nginx 不缓冲，否则看不到流
         },
     )
-
-
-# ── WebSocket（兼容旧客户端的帧格式）──
-
-@router.websocket("/ws/chat")
-async def ws_chat(ws: WebSocket):
-    """流式对话（WebSocket）。
-
-    帧格式保持旧客户端认识的样子：
-
-    - `{"type":"token","token":...}` 逐段正文
-    - `{"type":"done","final_reply":...}`
-    - `{"type":"error","message":...}`
-
-    内部消费的是 Agent 层事件，所以和 SSE 走同一条链路、同一份落库逻辑。
-
-    注意：`user_id` 仍取自客户端消息体（S1 待修：握手时验 token）。
-    """
-    from garmin_coach.agent import get_agent
-
-    await ws.accept()
-    try:
-        while True:
-            data = json.loads(await ws.receive_text())
-            message = (data.get("message") or "").strip()
-            # provider 由后端配置决定（LLM_PROVIDER），客户端传什么都不用
-            user_id = data.get("user_id", 0)
-
-            if not message:
-                continue
-
-            await ws.send_text(json.dumps(
-                {"type": "context", "datetime": dt.datetime.now().strftime("%Y-%m-%d %H:%M")},
-                ensure_ascii=False,
-            ))
-
-            reply_parts: list[str] = []
-            async for event in get_agent(user_id).run(message):
-                if isinstance(event, TextEvent):
-                    reply_parts.append(event.text)
-                    await ws.send_text(json.dumps(
-                        {"type": "token", "token": event.text}, ensure_ascii=False
-                    ))
-                elif isinstance(event, DoneEvent):
-                    await ws.send_text(json.dumps(
-                        {"type": "done", "final_reply": event.result.text},
-                        ensure_ascii=False,
-                    ))
-
-    except WebSocketDisconnect:
-        pass
-    except Exception as e:  # noqa: BLE001
-        try:
-            await ws.send_text(json.dumps(
-                {"type": "error", "message": f"{e.__class__.__name__}: {e}"},
-                ensure_ascii=False,
-            ))
-        except Exception:  # noqa: BLE001 - 连接已断
-            pass

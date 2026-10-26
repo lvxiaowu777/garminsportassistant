@@ -122,7 +122,7 @@ python -m garmin_coach.server
 | 认证 | `POST /api/auth/register`、`POST /api/auth/login`、`GET /api/auth/me` |
 | 手表 | `POST /api/watch/bind`、`POST /api/watch/bind-mfa`、`GET /api/watch/list` |
 | 健康数据 | `GET /api/health/dashboard`、`GET /api/health/recent/{days}`、`GET /api/health/activity/{id}` |
-| 对话 | `POST /api/chat`、`GET /api/chat/history`、`WS /ws/chat` |
+| 对话 | `POST /api/chat/stream`（SSE）、`POST /api/chat/voice`、`GET /api/chat/history` |
 | 推送 | `POST /api/push/register`、`POST /api/push/test` |
 
 ---
