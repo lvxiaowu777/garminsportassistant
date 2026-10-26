@@ -173,11 +173,25 @@ class PromptProvider:
     def __init__(self, base: str | None = None) -> None:
         self._base = base
 
-    def build(self, now: dt.datetime | None = None, extra: list[str] | None = None) -> str:
-        """基础提示词 + 时间块 + 额外段落。"""
-        prompt = (self._base if self._base is not None else BASE_PROMPT) + _time_block(now)
+    def build(self, extra: list[str] | None = None) -> str:
+        """**只返回稳定部分**（身份/规则/工具用法）。
+
+        时间、记忆、数据新鲜度这些每轮都变的东西**不放这里**——
+        它们会作为一条 user 上下文消息插在最后一条用户消息之前。
+        """
+        prompt = self._base if self._base is not None else BASE_PROMPT
         for part in extra or []:
             prompt += f"\n\n{part.strip()}"
         return prompt
+
+
+def time_context(now: dt.datetime | None = None) -> str:
+    """一行时间上下文（放进 user 消息，不进 system）。"""
+    current = now or dt.datetime.now()
+    weekday = "一二三四五六日"[current.weekday()]
+    return (
+        f"时间：{current.strftime('%Y-%m-%d %H:%M')}"
+        f"（{_period(current.hour)}，周{weekday}）"
+    )
 
 

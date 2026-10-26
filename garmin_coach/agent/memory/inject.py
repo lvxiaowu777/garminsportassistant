@@ -61,8 +61,10 @@ def build_injected(user_id: int, limit: int = DEFAULT_LIMIT) -> list[dict]:
 
 
 async def build_injection(user_id: int) -> list[dict]:
-    """本轮注入块的完整内容：长期记忆 + 数据新鲜度。
+    """本轮上下文块的完整内容：长期记忆 + 数据新鲜度。
 
+    注意：这些块**不会进 system**（否则 prompt cache 每轮失效），
+    Agent 会把它们拼成一条 user 上下文消息插在最后一条用户消息之前。
     两条都"尽力而为"：任一条失败就少一条，绝不影响对话。
     """
     blocks: list[dict] = []

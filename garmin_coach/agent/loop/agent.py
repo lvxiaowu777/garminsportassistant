@@ -172,11 +172,39 @@ class Agent:
             return []
 
     def _payload(self, system: str, injected: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        """system → 注入块 → 会话消息（直接可 JSON 化）。"""
+        """system → 历史消息 → 本轮上下文（user）→ 当前用户消息。
+
+        动态内容（时间 / 记忆 / 数据截至）**不放 system**：system 要保持稳定，
+        否则 Anthropic 的显式 cache 断点和 OpenAI 的隐式前缀缓存都会失效。
+        上下文放在最后一条用户消息之前，既语义自然，又能让前面的前缀命中缓存。
+        """
+        context = self._context_message(injected)
+        messages = self._conv.serialize()
         payload: list[dict[str, Any]] = [{"role": "system", "content": system}]
-        payload.extend(injected)
-        payload.extend(self._conv.serialize())
+
+        if context and messages and messages[-1].get("role") == "user":
+            payload.extend(messages[:-1])
+            payload.append({"role": "user", "content": context})
+            payload.append(messages[-1])
+        else:
+            payload.extend(messages)
+            if context:
+                payload.append({"role": "user", "content": context})
         return payload
+
+    @staticmethod
+    def _context_message(injected: list[dict[str, Any]]) -> str:
+        """把时间 + 注入块拼成一条 user 消息的正文（没有内容就返回空串）。"""
+        from ..prompts.base import time_context
+
+        lines = [time_context()]
+        for block in injected:
+            text = (block.get("content") or "").strip()
+            if text:
+                lines.append(text)
+        if len(lines) == 1:
+            return ""
+        return "## 当前上下文\n" + "\n".join(f"- {line}" if "\n" not in line else line for line in lines)
 
     # ── 对外：事件流 ──
 
