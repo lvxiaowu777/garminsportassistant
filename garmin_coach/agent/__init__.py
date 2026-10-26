@@ -31,7 +31,7 @@ from .loop import (
 )
 from .memory import MemoryManager
 from .pool import AgentPool, get_agent, get_agent_pool
-from .prompts import PromptProvider, build_system_prompt
+from .prompts import PromptProvider
 from .session import Session, SessionManager, get_session_manager, session_id_for
 
 __all__ = [
@@ -52,7 +52,6 @@ __all__ = [
     "ToolCallEvent",
     "ToolCallRecord",
     "ToolResultEvent",
-    "build_system_prompt",
     "get_agent",
     "get_agent_pool",
     "get_session_manager",

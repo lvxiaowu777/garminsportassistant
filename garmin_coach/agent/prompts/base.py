@@ -159,11 +159,6 @@ def _time_block(now: dt.datetime | None = None) -> str:
     )
 
 
-def build_system_prompt(now: dt.datetime | None = None) -> str:
-    """Agent 用的提示词（调工具），拼上当前时间。"""
-    return BASE_PROMPT + _time_block(now)
-
-
 class PromptProvider:
     """提示词依赖：Agent 构造时注入，方便替换 / 追加段落 / 测试。
 
