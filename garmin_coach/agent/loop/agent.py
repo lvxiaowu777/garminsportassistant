@@ -111,7 +111,6 @@ class Agent:
         self._conv = ConversationManager(user_id=user_id, session_id=self._session.session_id)
         self._lock = asyncio.Lock()
         self._resumed = False
-        self._injected: list[dict[str, Any]] = []
         self.turns = 0
         self.last_active = time.time()
 
@@ -158,13 +157,12 @@ class Agent:
 
     # ── 注入 ──
 
-    def set_injected(self, injected: list[dict[str, Any]] | None) -> None:
-        """覆盖本轮注入块（测试用；默认由 memory 构建）。"""
-        self._injected = list(injected or [])
-
-    async def _build_injected(self) -> list[dict[str, Any]]:
-        if self._injected:
-            return self._injected
+    async def _build_injected(
+        self, injected: list[dict[str, Any]] | None
+    ) -> list[dict[str, Any]]:
+        """本轮注入块：调用方给了就用；否则问 memory 要（记忆 + 数据时间）。"""
+        if injected is not None:
+            return list(injected)
         if self._memory is None:
             return []
         try:
@@ -173,10 +171,10 @@ class Agent:
             log.warning("injection failed: user=%s: %s", self.user_id, exc)
             return []
 
-    def _payload(self, system: str) -> list[dict[str, Any]]:
+    def _payload(self, system: str, injected: list[dict[str, Any]]) -> list[dict[str, Any]]:
         """system → 注入块 → 会话消息（直接可 JSON 化）。"""
         payload: list[dict[str, Any]] = [{"role": "system", "content": system}]
-        payload.extend(self._injected)
+        payload.extend(injected)
         payload.extend(self._conv.serialize())
         return payload
 
@@ -198,8 +196,7 @@ class Agent:
         - ``injected``：覆盖本轮注入块；不传则用 memory 构建
         """
         session = self._ensure_session()
-        self._injected = list(injected) if injected is not None else []
-        injected_blocks = await self._build_injected()
+        injected_blocks = await self._build_injected(injected)
 
         async with self._lock:
             t0 = time.perf_counter()
@@ -264,7 +261,7 @@ class Agent:
         on_text: Any = None,
     ) -> AsyncIterator[AgentEvent]:
         conv = self._conv
-        self._injected = list(injected or [])
+        injected = list(injected or [])
         system = system_prompt or self._prompts.build()
         tool_specs = self._registry.specs()
         records: list[ToolCallRecord] = []
@@ -280,7 +277,7 @@ class Agent:
 
             t_llm = time.perf_counter()
             async for event in self._llm.stream(
-                self._payload(system),
+                self._payload(system, injected),
                 system=None,          # system 已经在 payload 里，传输层不再重复拼
                 tools=tool_specs or None,
                 temperature=self._temperature,
