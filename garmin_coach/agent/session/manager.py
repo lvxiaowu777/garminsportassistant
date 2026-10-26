@@ -106,7 +106,6 @@ class SessionManager:
                 {
                     "session_id": s.session_id,
                     "user_id": s.user_id,
-                    "turns": s.turns,
                     "idle_s": int(s.idle_seconds),
                 }
                 for s in self._sessions.values()

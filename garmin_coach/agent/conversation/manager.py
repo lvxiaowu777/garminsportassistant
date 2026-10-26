@@ -1,42 +1,64 @@
-"""对话历史管理 —— 对应 MewCode 的 ``ConversationManager``。
+"""对话管理器：**内存消息本 + 持久化门面**。
 
-只做三件事：存消息、按需加载历史、保证消息序列对 API 合法。
+Agent 只跟 CM 打交道，不直接碰数据库：
 
-「保证合法」这一条比看起来重要：OpenAI 协议要求带 tool_calls 的 assistant
-消息后面必须紧跟对应的 tool 消息，少一条就 400。所以这里不提供「随便 append
-一条 dict」的入口，只能通过语义化的方法写入。
+- 内存：``messages``（协议合法化交给 ``serialize.py``）
+- 恢复：``load()`` 显式调一次 ``Session.resume()``（不在构造里做 IO）
+- 写入分两类：
+  - ``add_user`` / ``add_assistant``：进内存 **并落库**（用户和最终回答）；
+  - ``add_assistant_tool_calls`` / ``add_tool_result``：只进内存（工具往返不落库）；
+  - ``fail``：**只落库**，不进内存（错误占位不该被模型当成自己的话）。
+
+这样"什么时候进 messages、什么时候落库"只有一个入口，Agent 的 loop 不用再管持久化。
 """
 from __future__ import annotations
 
 import json
+import logging
 from typing import Any
 
+from ..session.store import Session
 from .serialize import serialize_messages
+
+log = logging.getLogger(__name__)
 
 
 class ConversationManager:
-    """一次会话的消息本。
+    """一次会话的消息本（同时是持久化的唯一入口）。"""
 
-    ``user_id`` / ``session_id`` 只是**标识**，用来在日志和 trace 里对上号；
-    它不知道数据库、不知道 TTL —— 落库和回收是 SessionManager 的事。
-    """
-
-    def __init__(self, user_id: int = 0, session_id: str = "") -> None:
+    def __init__(self, user_id: int = 0, session: Session | None = None) -> None:
         self.user_id = user_id
-        self.session_id = session_id
+        self._session = session
         self.messages: list[dict[str, Any]] = []
+        self._loaded = False
 
-    # ── 加载历史 ──
+    # ── 身份 ──
+
+    @property
+    def session_id(self) -> str:
+        return self._session.session_id if self._session else ""
+
+    def attach(self, session: Session) -> None:
+        """换绑会话（评测/重建用）：历史重置为未加载。"""
+        self._session = session
+        self._loaded = False
+
+    # ── 恢复 ──
+
+    def load(self) -> None:
+        """首次使用时从库里恢复历史；之后不再读库（内存为准）。"""
+        if self._loaded:
+            return
+        self._loaded = True
+        if self._session is not None:
+            self.load_history(self._session.resume())
 
     def load_history(self, history: list[dict] | None, limit: int = 20) -> None:
         """把历史消息并进来（数据库只存 user/assistant 纯文本）。
 
-        做三件清洗，理由是「发出去的消息必须合法」：
-
-        1. 只收 user / assistant，丢掉未知角色（tool 消息属于某一轮，不跨请求）；
-        2. **相邻同角色合并** —— 落库是按条写的，崩溃可能留下
-           `user, user` 这种半条记录；合并成一条更稳，也满足 Anthropic
-           要求的 user/assistant 交替；
+        清洗规则（发出去的消息必须合法）：
+        1. 只收 user / assistant（tool 属于某一轮，不跨请求）；
+        2. **相邻同角色合并** —— 崩溃可能留下 `user, user`，合并更稳；
         3. 丢掉空内容。
         """
         if not history:
@@ -55,28 +77,26 @@ class ConversationManager:
             else:
                 self.messages.append({"role": role, "content": content})
 
-    # ── 序列化（发给 LLM 前必须过这一关）──
+    # ── 写：进内存 + 落库 ──
 
-    def serialize(self) -> list[dict[str, Any]]:
-        """规整成可直接 JSON 化的协议合法形态（实现在 serialize.py）。"""
-        return serialize_messages(self.messages)
-
-    def add_user(self, text: str) -> None:
+    def add_user(self, text: str, **meta: Any) -> None:
+        """用户消息：进内存并落库（``meta`` 给语音：msg_type/audio_url/duration_sec）。"""
         self.messages.append({"role": "user", "content": text})
+        self._persist("user", text, **meta)
 
     def add_assistant(self, text: str) -> None:
+        """**最终回答**：进内存并落库（这才是聊天记录里该有的那条）。"""
         self.messages.append({"role": "assistant", "content": text})
+        self._persist("assistant", text)
+
+    # ── 写：只进内存（工具往返）──
 
     def add_assistant_tool_calls(
         self,
         text: str,
         calls: list[tuple[str, str, dict[str, Any]]],
     ) -> None:
-        """记录模型请求调用工具的那一轮。
-
-        ``calls`` 每项是 ``(call_id, tool_name, arguments)``。
-        arguments 要序列化回字符串 —— 这是协议要求，不是我们的选择。
-        """
+        """模型请求调用工具的那一轮（不落库：用户不需要看到这段）。"""
         self.messages.append(
             {
                 "role": "assistant",
@@ -96,6 +116,7 @@ class ConversationManager:
         )
 
     def add_tool_result(self, call_id: str, content: str) -> None:
+        """工具结果（不落库：属于这一轮的临时数据）。"""
         self.messages.append(
             {
                 "role": "tool",
@@ -104,17 +125,44 @@ class ConversationManager:
             }
         )
 
+    # ── 写：只落库（错误占位）──
+
+    def fail(self, text: str) -> None:
+        """落一条 ``type=error`` 的占位，**不进内存**。
+
+        恢复时 ``Session.resume()`` 会过滤掉它，所以模型不会把报错当历史发言；
+        但用户刷新页面能看到"这条没生成完"。
+        """
+        self._persist("assistant", text, msg_type="error")
+
+    # ── 持久化 ──
+
+    def _persist(self, role: str, content: str, **meta: Any) -> None:
+        if self._session is None or not content:
+            return
+        try:
+            self._session.append(role, content, **meta)
+        except Exception as exc:  # noqa: BLE001 - 落库失败不该影响回答
+            log.warning("conversation persist failed: %s: %s", self.session_id, exc)
+
     # ── 辅助 ──
 
+    def serialize(self) -> list[dict[str, Any]]:
+        """规整成可直接 JSON 化的协议合法形态（实现在 serialize.py）。"""
+        return serialize_messages(self.messages)
+
     def clear(self) -> None:
+        """清内存（DB 由 SessionManager.reset 负责）。"""
         self.messages.clear()
+        self._loaded = True
+
+    def close(self) -> None:
+        """会话结束：投记忆提炼任务。"""
+        if self._session is not None:
+            self._session.close()
 
     def estimate_chars(self) -> int:
-        """粗略的上下文体积（字符数）。
-
-        这里不做精确 token 计数 —— 中文下 1 token ≈ 1.5 字符，
-        真要精确得引 tokenizer。用于观察和日志足够。
-        """
+        """粗略的上下文体积（字符数）。"""
         total = 0
         for m in self.messages:
             total += len(str(m.get("content") or ""))

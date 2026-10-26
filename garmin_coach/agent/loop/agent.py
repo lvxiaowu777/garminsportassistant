@@ -10,8 +10,8 @@ async for ev in agent.run("今晚跑不跑"):
     elif isinstance(ev, DoneEvent): 收尾
 ```
 
-想要「一次拿到最终结果」的调用方用 ``SessionManager.run_turn()``（它就是
-把事件流消费完再返回 ``AgentResult``，落库/trace 也一并做完）。
+想要「一次拿到最终结果」的调用方用 ``collect()``（消费完事件流返回 ``AgentResult``）。
+落库和恢复在 CM 里完成，Agent 只负责循环和 trace。
 """
 from __future__ import annotations
 
@@ -44,7 +44,6 @@ from .events import (
     ToolResultEvent,
 )
 from ..prompts import PromptProvider
-from ..session.store import Session
 
 log = logging.getLogger(__name__)
 
@@ -68,16 +67,10 @@ class Agent:
 
     一个用户一个实例，由 ``AgentPool`` 持有，空闲 1 小时回收。
 
-    它持有：
-    - ``llm``：传输层客户端（按 provider 共享）
-    - ``registry``：工具表（绑定 user_id）
-    - ``prompts``：提示词提供者（依赖注入）
-    - ``sessions``：会话管理器（拿 Session、落库、恢复）
-    - ``memory``：长期记忆（注入 + 提炼）
-    - ``tracer``：运行轨迹（agent_runs / agent_steps）
-    - ``conv``：对话管理器（跟着 Agent 活，1 小时内的多轮共用）
+    它持有：``llm`` / ``registry`` / ``prompts`` / ``memory`` / ``tracer`` / ``conv``。
+    **不持有 SessionManager，也不碰数据库**：落库和恢复都在 CM 里（CM 持有 Session）。
 
-    ``run()`` 是唯一入口：落 user → 循环（模型 ↔ 工具）→ 落 assistant → trace。
+    ``run()`` 只做三件事：CM.load() → 循环（模型 ↔ 工具）→ trace。
     """
 
     def __init__(
@@ -85,7 +78,7 @@ class Agent:
         llm: LLMClient,
         registry: ToolRegistry,
         prompts: "PromptProvider",
-        sessions: "SessionManager",
+        conversation: ConversationManager,
         *,
         user_id: int = 0,
         provider: str = "",
@@ -101,7 +94,7 @@ class Agent:
         # system 是稳定的（不含时间/记忆），构造时构建一次即可；
         # 以后 hook 要追加段落，就在这里改成每轮 build(extra=...)。
         self._system_prompt = prompts.build()
-        self._sessions = sessions
+        self._conv = conversation
         self._memory = memory
         self._tracer = tracer
         self.user_id = user_id
@@ -109,11 +102,7 @@ class Agent:
         self._max_turns = max_turns
         self._temperature = temperature
         self._max_tokens = max_tokens
-        # 构造时就绑定会话：Agent 是会话的持有者，session_id 立刻可用
-        self._session: Session = sessions.open(user_id)
-        self._conv = ConversationManager(user_id=user_id, session_id=self._session.session_id)
         self._lock = asyncio.Lock()
-        self._resumed = False
         self.turns = 0
         self.last_active = time.time()
 
@@ -121,7 +110,7 @@ class Agent:
 
     @property
     def session_id(self) -> str:
-        return self._session.session_id
+        return self._conv.session_id
 
     @property
     def conversation(self) -> ConversationManager:
@@ -131,32 +120,18 @@ class Agent:
     def idle_seconds(self) -> float:
         return time.time() - self.last_active
 
+    @property
+    def is_busy(self) -> bool:
+        """正在跑一轮（锁被持有）。回收时要跳过它。"""
+        return self._lock.locked()
+
     def touch(self) -> None:
         self.last_active = time.time()
 
-    def detach_session(self) -> None:
-        """只断开引用、不触发 close（清空历史 / 评测重置时用）。"""
-        self._session = self._sessions.open(self.user_id)
-        self._conv = ConversationManager(
-            user_id=self.user_id, session_id=self._session.session_id
-        )
-        self._resumed = False
-
     def close(self) -> None:
-        """Agent 被回收：关闭会话（投记忆提炼任务）。"""
-        if self._session is not None:
-            self._session.close()
-
-    # ── 会话（构造时已绑定，历史只恢复一次）──
-
-    def _ensure_session(self) -> Session:
-        if not self._resumed:
-            self._resumed = True
-            history = self._session.resume()
-            if history:
-                self._conv.load_history(history)
-        self._session.touch()
-        return self._session
+        """Agent 被回收：关闭会话（CM 负责投记忆提炼任务）。"""
+        self._conv.close()
+        self._conv.clear()
 
     # ── 注入 ──
 
@@ -215,25 +190,22 @@ class Agent:
         self,
         user_message: str,
         *,
-        persist_user: bool = True,
         user_record: dict[str, Any] | None = None,
         injected: list[dict[str, Any]] | None = None,
         on_text: Any = None,
     ) -> AsyncIterator[AgentEvent]:
         """跑一轮，逐事件产出。
 
-        - ``persist_user=False``：调用方已经写过 user 消息
         - ``user_record``：落库时附带的字段（语音：msg_type / audio_url / duration_sec）
         - ``injected``：覆盖本轮注入块；不传则用 memory 构建
         """
-        session = self._ensure_session()
+        self._conv.load()
         injected_blocks = await self._build_injected(injected)
 
         async with self._lock:
             t0 = time.perf_counter()
-            self._conv.add_user(user_message)
-            if persist_user:
-                session.append("user", user_message, **(user_record or {}))
+            # CM 负责「进内存 + 落库」（语音的 meta 一起透传）
+            self._conv.add_user(user_message, **(user_record or {}))
 
             result: AgentResult | None = None
             partial: list[str] = []
@@ -250,22 +222,15 @@ class Agent:
             finally:
                 self.turns += 1
                 self.touch()
-                session.turns += 1
-                session.touch()
                 if result is not None:
-                    session.append("assistant", result.text)
+                    # 最终回答已经由 _loop 里的 conv.add_assistant 落库
                     self._record_trace(result, int((time.perf_counter() - t0) * 1000))
                 else:
-                    # 异常 / 客户端断开 / 进程被打断：assistant 还没写。
-                    # 落一条 type=error 的占位，避免历史里只剩用户那条消息；
-                    # 它不进模型上下文（resume 会过滤掉）。
+                    # 异常 / 客户端断开：assistant 没写。落一条 type=error 占位
+                    # （不进内存，resume 时也会被过滤）。
                     text = "".join(partial).strip()
                     note = "（这条回复没有生成完——可能是网络或模型中断，可以再发一次）"
-                    session.append(
-                        "assistant",
-                        f"{text}\n\n{note}" if text else note,
-                        msg_type="error",
-                    )
+                    self._conv.fail(f"{text}\n\n{note}" if text else note)
 
     async def collect(self, user_message: str, **kwargs: Any) -> AgentResult:
         """消费完事件流返回最终结果（非流式接口 / 评测用）。"""

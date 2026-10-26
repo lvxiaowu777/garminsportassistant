@@ -31,7 +31,6 @@ class Session:
 
     session_id: str
     user_id: int
-    turns: int = 0
     created_at: float = field(default_factory=time.time)
     last_active: float = field(default_factory=time.time)
     closed: bool = False
@@ -88,4 +87,4 @@ class Session:
             log.warning("session close failed: %s: %s", self.session_id, exc)
 
     def __repr__(self) -> str:  # pragma: no cover - 调试用
-        return f"<Session {self.session_id} turns={self.turns}>"
+        return f"<Session {self.session_id}>"

@@ -16,10 +16,12 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import threading
 import time
 
 from garmin_coach.agent.llmclient.config import get_provider
 from garmin_coach.agent.llmclient.factory import get_shared_client
+from garmin_coach.agent.conversation import ConversationManager
 from garmin_coach.agent.loop import Agent
 from garmin_coach.agent.memory import MemoryManager
 from garmin_coach.agent.prompts import PromptProvider
@@ -58,6 +60,10 @@ class AgentPool:
     ) -> None:
         self._sessions = sessions or get_session_manager()
         self._agents: dict[int, Agent] = {}
+        # 回收由 APScheduler 的后台线程触发，而 get() 在事件循环线程里跑；
+        # 两个线程都会改 _agents，用一把进程内锁把遍历/删除串起来。
+        # （真要多 worker 还是得换 Redis，见总纲 §2.12。）
+        self._lock = threading.RLock()
         self._ttl = ttl if ttl is not None else settings.session_ttl_seconds
         self._max = max_agents if max_agents is not None else settings.max_sessions
         self._tracer = tracer or _default_tracer
@@ -70,6 +76,10 @@ class AgentPool:
         self._maybe_reap()
         current_loop = _current_loop_id()
         today_sid = session_id_for(user_id)
+        with self._lock:
+            return self._get_locked(user_id, current_loop, today_sid)
+
+    def _get_locked(self, user_id: int, current_loop: int, today_sid: str) -> Agent:
         agent = self._agents.get(user_id)
 
         if agent is not None and agent.loop_id != current_loop:
@@ -105,11 +115,12 @@ class AgentPool:
             raise RuntimeError(f"{provider.display_name} 的 API key 未配置")
 
         session = self._sessions.open(user_id)
+        conv = ConversationManager(user_id=user_id, session=session)
         agent = Agent(
             llm=get_shared_client(provider),          # 传输层：所有 Agent 共享
             registry=build_default_registry(user_id),  # 工具层：绑定 user_id
             prompts=PromptProvider(),                  # 提示词：依赖注入
-            sessions=self._sessions,                   # 会话：Agent 持有
+            conversation=conv,                         # 消息本 + 持久化（持有 Session）
             memory=MemoryManager(user_id),             # 记忆：注入 + 提炼
             user_id=user_id,
             provider=provider.key,
@@ -128,26 +139,34 @@ class AgentPool:
             self.reap()
 
     def reap(self) -> int:
-        """回收空闲超时 / LRU 超限的 Agent；返回回收数量。"""
+        """回收空闲超时 / LRU 超限的 Agent；**跳过正在跑的**。"""
         self._last_reap = time.time()
-        before = len(self._agents)
+        with self._lock:
+            before = len(self._agents)
 
-        expired = [uid for uid, a in self._agents.items() if a.idle_seconds > self._ttl]
-        for uid in expired:
-            self._evict(uid)
-
-        if len(self._agents) > self._max:
-            ordered = sorted(self._agents.items(), key=lambda kv: kv[1].last_active)
-            for uid, _ in ordered[: len(self._agents) - self._max]:
+            expired = [
+                uid for uid, a in self._agents.items()
+                if a.idle_seconds > self._ttl and not a.is_busy
+            ]
+            for uid in expired:
                 self._evict(uid)
 
-        removed = before - len(self._agents)
+            if len(self._agents) > self._max:
+                idle = [
+                    (uid, a) for uid, a in self._agents.items() if not a.is_busy
+                ]
+                idle.sort(key=lambda kv: kv[1].last_active)
+                for uid, _ in idle[: len(self._agents) - self._max]:
+                    self._evict(uid)
+
+            removed = before - len(self._agents)
         if removed:
             log.info("agent reap: removed=%d alive=%d", removed, len(self._agents))
         return removed
 
     def _evict(self, user_id: int) -> None:
-        agent = self._agents.pop(user_id, None)
+        with self._lock:
+            agent = self._agents.pop(user_id, None)
         if agent is None:
             return
         try:
@@ -162,14 +181,14 @@ class AgentPool:
         """只清内存（库里的记录保留，下次会 resume）。"""
         agent = self._agents.pop(user_id, None)
         if agent is not None:
-            agent.detach_session()
+            agent.close()
         self._sessions.drop(user_id)
 
     def reset(self, user_id: int, *, wipe_memory: bool = False) -> dict:
         """评测专用：内存 + 库 + 记忆一起清。"""
         agent = self._agents.pop(user_id, None)
         if agent is not None:
-            agent.detach_session()
+            agent.close()
         return self._sessions.reset(user_id, wipe_messages=True, wipe_memory=wipe_memory)
 
     # ── 观测 ──

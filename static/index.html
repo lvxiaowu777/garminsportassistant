@@ -153,6 +153,19 @@ input,textarea{font-family:inherit;font-size:15px}
   background:transparent;border:1px dashed rgba(148,163,184,.5);
   color:var(--muted);font-size:12.5px;
 }
+.tool-steps{font-size:12px;color:var(--muted);margin-bottom:8px;padding-bottom:6px;
+  border-bottom:1px solid rgba(148,163,184,.15)}
+.tool-line{display:flex;gap:10px;align-items:center;justify-content:space-between}
+.tool-now{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tool-toggle{background:none;border:0;color:var(--accent);font-size:11.5px;
+  cursor:pointer;padding:0;flex-shrink:0}
+.tool-list{display:none;margin-top:6px}
+.tool-list.open{display:block}
+.tool-item{padding:2px 0;opacity:.85;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tool-item .st{display:inline-block;width:14px}
+.tool-item.running .st::before{content:'◌';color:var(--accent)}
+.tool-item.done .st::before{content:'✓';color:#4ADE80}
+.tool-item.error .st::before{content:'✕';color:#F87171}
 .msg-avatar{
   width:30px;height:30px;border-radius:50%;flex-shrink:0;
   display:flex;align-items:center;justify-content:center;font-size:15px;
@@ -846,7 +859,40 @@ function fmtTime(ts) {
 }
 
 /** 单条消息的 HTML（文字 / 语音） */
-function msgHtml(m) {
+const TOOL_LABELS = {
+  get_today: '正在获取今天的身体数据',
+  get_safety: '正在评估今天的安全强度',
+  get_recent: '正在拉取最近的训练记录',
+  get_activity: '正在查看这次活动的详情',
+  get_day: '正在查看那天的数据',
+  get_weather: '正在查询天气',
+  get_profile: '正在读取你的训练档案',
+  record_training: '正在记录这次训练',
+  save_plan: '正在保存训练计划',
+  get_exercise_names: '正在核对动作名称',
+};
+function toolLabel(name) {
+  return TOOL_LABELS[name] || '正在查询数据';
+}
+
+function stepsHtml(m, idx) {
+  const steps = m.steps || [];
+  if (!steps.length) return '';
+  const last = steps[steps.length - 1];
+  const open = !!m.expanded;
+  const items = steps.map(s =>
+    `<div class="tool-item ${s.status}"><span class="st"></span>${esc(toolLabel(s.name))}</div>`
+  ).join('');
+  return `<div class="tool-steps">
+    <div class="tool-line">
+      <span class="tool-now">${esc(toolLabel(last.name))}…</span>
+      <button class="tool-toggle" data-idx="${idx}">${open ? '收起' : `全部 ${steps.length} 步`}</button>
+    </div>
+    <div class="tool-list ${open ? 'open' : ''}">${items}</div>
+  </div>`;
+}
+
+function msgHtml(m, idx) {
   const isUser = m.role === 'user';
   const time = m.created_at ? `<div class="msg-time">${esc(fmtTime(m.created_at))}</div>` : '';
   let body;
@@ -862,9 +908,10 @@ function msgHtml(m) {
     body = esc(m.content || '');
   }
   const bubbleClass = m.type === 'error' ? 'bubble error' : 'bubble';
+  const steps = isUser ? '' : stepsHtml(m, idx);
   return `<div class="msg ${isUser ? 'user' : 'assistant'}">
     ${isUser ? '' : '<div class="msg-avatar">🤖</div>'}
-    <div class="msg-col"><div class="${bubbleClass}">${body}</div>${time}</div>
+    <div class="msg-col"><div class="${bubbleClass}">${steps}${body}</div>${time}</div>
   </div>`;
 }
 
@@ -877,7 +924,7 @@ function renderChat() {
     </div>`;
     return;
   }
-  list.innerHTML = state.chatMessages.map(msgHtml).join('') + (state.chatBusy
+  list.innerHTML = state.chatMessages.map((m, i) => msgHtml(m, i)).join('') + (state.chatBusy
     ? `<div class="msg assistant"><div class="msg-avatar">🤖</div><div class="msg-col"><div class="bubble typing"><i></i><i></i><i></i></div></div></div>`
     : '');
   // 语音气泡点击播放
@@ -931,7 +978,7 @@ async function sendChat() {
   state.chatMessages.push({ role: 'user', content: msg, created_at: new Date().toISOString() });
 
   // 先放一个空的助手气泡，边收边填（打字机）
-  const bubble = { role: 'assistant', content: '', created_at: new Date().toISOString() };
+  const bubble = { role: 'assistant', content: '', steps: [], created_at: new Date().toISOString() };
   state.chatMessages.push(bubble);
 
   state.chatBusy = true;
@@ -1007,15 +1054,19 @@ async function streamChat(message, bubble) {
       } else if (evt.type === 'done') {
         // 以最终结果为准（含工具执行后的完整文本）
         bubble.content = evt.reply || bubble.content;
+        (bubble.steps || []).forEach(s => { if (s.status === 'running') s.status = 'done'; });
         if (Array.isArray(evt.tools) && evt.tools.includes('record_training')) {
           toast('已记录这次训练');
         }
       } else if (evt.type === 'error') {
         bubble.content += `\n⚠️ ${evt.message}`;
-      }
-      // thinking / tool_call / tool_result：先只落控制台，工具进度提示后续再做
-      else if (evt.type === 'tool_call') {
-        console.debug('[tool]', evt.name, evt.arguments);
+      } else if (evt.type === 'tool_call') {
+        bubble.steps.push({ name: evt.name, call_id: evt.call_id, status: 'running' });
+        paint();
+      } else if (evt.type === 'tool_result') {
+        const step = [...bubble.steps].reverse().find(s => s.call_id === evt.call_id);
+        if (step) step.status = evt.is_error ? 'error' : 'done';
+        paint();
       }
     }
   }
@@ -1637,6 +1688,16 @@ function encodeWav(samples, sampleRate) {
   }
   return buffer;
 }
+
+// 工具步骤展开/收起：事件委托，只注册一次
+document.addEventListener('click', (e) => {
+  const btn = e.target.closest('.tool-toggle');
+  if (!btn) return;
+  const msg = state.chatMessages[Number(btn.dataset.idx)];
+  if (!msg) return;
+  msg.expanded = !msg.expanded;
+  renderChat();
+});
 
 async function sendVoice(blob, durationSec) {
   if (state.chatBusy) return;

@@ -87,7 +87,7 @@ async def api_chat_voice(
     """语音消息：存音频 → ASR → 同一个 Agent 回答。
 
     语音消息和文字消息的唯一区别是落库时带 `type=voice` + `audio_url`，
-    所以这里自己写 user 那一行，Agent 那边 `persist_user=False` 避免重复。
+    所以这里把语音元数据交给 Agent，由 CM 落库时一起写（msg_type / audio_url / duration_sec）。
     """
     from garmin_coach.agent import get_agent
 
