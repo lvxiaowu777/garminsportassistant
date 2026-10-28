@@ -224,18 +224,21 @@ class StrengthSet(Base):
 
 
 class DailyPlan(Base):
-    """AI 生成的未来 3 天训练计划（对话式 [PLAN] 标记落库）。"""
+    """AI 生成的训练计划（默认未来一周）。"""
 
     __tablename__ = "daily_plans"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     user_id = Column(Integer, nullable=False, default=0)
-    date = Column(String(10), nullable=False)  # 生成日期 YYYY-MM-DD
-    plan_json = Column(Text)  # 3 天计划 JSON 字符串
+    date = Column(String(10), nullable=False)   # 生成日期 YYYY-MM-DD（仅统计用）
+    start_date = Column(String(10), default="")  # 计划覆盖的第一天
+    end_date = Column(String(10), default="")    # 计划覆盖的最后一天
+    plan_json = Column(Text)  # {"days": [...]} JSON 字符串
     created_at = Column(String(32), default=_now_str)
 
     __table_args__ = (
         Index("idx_plan_user", "user_id"),
+        Index("idx_plan_active", "user_id", "end_date"),
     )
 
 

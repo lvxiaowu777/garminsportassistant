@@ -469,12 +469,18 @@ class GetProfileTool(Tool):
 
         plan = await _in_thread(db_get_latest_plan, self._user_id)
         if plan and plan.get("days"):
-            lines.append("已生成的训练计划（安排今日时优先参考）：")
-            for d in plan["days"][:3]:
+            left = plan.get("days_left")
+            remain = f"，还剩 {left} 天" if isinstance(left, int) else ""
+            lines.append(
+                f"当前计划：{plan.get('start_date', '')} ~ {plan.get('end_date', '')}{remain}"
+            )
+            for d in plan["days"]:
                 lines.append(
                     f"  {d.get('date', '')} {d.get('day', '')}: 跑步 {d.get('run', '休息')}"
                     f" / 力量 {d.get('strength') or '无'} / {d.get('note') or ''}"
                 )
+        elif plan is None:
+            lines.append("当前没有有效期内的训练计划（用户可能要重新安排）")
         return ToolResult("\n".join(lines))
 
 

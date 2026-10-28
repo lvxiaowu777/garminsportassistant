@@ -38,11 +38,11 @@ if ENV_PATH.exists():
                     key, _, val = line.partition("=")
                     os.environ.setdefault(key.strip(), val.strip())
 
-from sqlalchemy import create_engine, func, inspect, text
+from sqlalchemy import create_engine, func, inspect, select, text
 from sqlalchemy.dialects.mysql import insert as _mysql_insert
 from sqlalchemy.orm import sessionmaker
 
-from garmin_coach.db.models import Base
+from garmin_coach.db.models import Base, DailyPlan
 
 # 数据库连接串只从环境变量读。历史版本在这里硬编码了 MySQL 账号密码，
 # 阶段 0库 重构时移除 —— 连接串属于环境配置，不该写进代码，更不该进版本。
@@ -152,6 +152,53 @@ def _ensure_indexes() -> None:
                 log.warning("chat_history index fix skipped: %s", exc)
 
 
+def _ensure_plan_columns() -> None:
+    """给 daily_plans 补 start_date / end_date，并从 plan_json 回填（幂等）。"""
+    inspector = inspect(engine)
+    if "daily_plans" not in set(inspector.get_table_names()):
+        return
+    existing = {c["name"] for c in inspector.get_columns("daily_plans")}
+    with engine.begin() as conn:
+        try:
+            if "start_date" not in existing:
+                conn.execute(text("ALTER TABLE daily_plans ADD COLUMN start_date VARCHAR(10) DEFAULT ''"))
+            if "end_date" not in existing:
+                conn.execute(text("ALTER TABLE daily_plans ADD COLUMN end_date VARCHAR(10) DEFAULT ''"))
+            names = {i["name"] for i in inspector.get_indexes("daily_plans")}
+            if "idx_plan_active" not in names:
+                conn.execute(text(
+                    "CREATE INDEX idx_plan_active ON daily_plans (user_id, end_date)"
+                ))
+        except Exception as exc:  # noqa: BLE001 - 启动不该被索引问题卡住
+            log.warning("daily_plans column/index fix skipped: %s", exc)
+
+    # 回填：从 plan_json 里取 min/max 日期
+    session = SessionLocal()
+    try:
+        rows = session.execute(
+            select(DailyPlan).where(DailyPlan.end_date == "")
+        ).scalars().all()
+        import json as _json
+
+        for row in rows:
+            try:
+                data = _json.loads(row.plan_json or "{}")
+                days = data.get("days") if isinstance(data, dict) else data
+                dates = sorted(d.get("date") for d in (days or []) if d.get("date"))
+            except Exception:  # noqa: BLE001
+                dates = []
+            if dates:
+                row.start_date, row.end_date = dates[0], dates[-1]
+            else:
+                row.start_date = row.end_date = row.date or ""
+        session.commit()
+    except Exception as exc:  # noqa: BLE001
+        session.rollback()
+        log.warning("daily_plans backfill skipped: %s", exc)
+    finally:
+        session.close()
+
+
 def init_db():
     """建表（幂等）+ 预填标准动作名 + 补用户档案列 + 补聊天语音列。"""
     Base.metadata.create_all(engine)
@@ -164,6 +211,7 @@ def init_db():
     _ensure_strength_columns()
     _ensure_health_columns()
     _ensure_indexes()
+    _ensure_plan_columns()
 
 
 def _ensure_user_columns():
