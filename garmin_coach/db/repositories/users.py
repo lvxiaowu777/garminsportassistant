@@ -2,34 +2,14 @@
 from __future__ import annotations
 
 import datetime as dt
-import hashlib
 import json
 from typing import Optional
 
-from sqlalchemy import delete, func, inspect, select, text, update
+from sqlalchemy import select, update
 
-from garmin_coach.db.models import (
-    Activity,
-    AgentRun,
-    AgentStep,
-    ChatHistory,
-    DailyPlan,
-    DeviceToken,
-    ExerciseName,
-    HealthDaily,
-    MemoryOutbox,
-    StrengthSet,
-    User,
-    UserMemory,
-    WatchBinding,
-)
+from garmin_coach.db.models import User
 
-from ._base import (
-    SessionLocal,
-    _insert_stmt,
-    _upsert,
-    _upsert_append,
-)
+from ._base import SessionLocal
 
 
 def create_user(phone: str, password_hash: str) -> Optional[int]:
@@ -108,7 +88,12 @@ def update_user_profile(user_id: int, data: dict) -> bool:
         return False
     session = SessionLocal()
     try:
-        session.execute(User.__table__.update().where(User.id == user_id).values(**values))
+        session.execute(
+            User.__table__
+            .update()
+            .where(User.id == user_id)
+            .values(**values)
+        )
         session.commit()
         return True
     finally:
@@ -129,7 +114,12 @@ def update_last_sync_date(user_id: int, date_str: str):
     """更新用户上次同步日期。"""
     session = SessionLocal()
     try:
-        session.execute(User.__table__.update().where(User.id == user_id).values(last_sync_date=date_str))
+        session.execute(
+            User.__table__
+            .update()
+            .where(User.id == user_id)
+            .values(last_sync_date=date_str)
+        )
         session.commit()
     finally:
         session.close()

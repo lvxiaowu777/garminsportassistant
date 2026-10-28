@@ -5,7 +5,7 @@ import datetime as dt
 
 from fastapi import APIRouter, Depends, HTTPException
 
-from ..deps import get_current_user, require_user
+from ..deps import require_user
 from ..schemas import RecordTrainingRequest, UpdateExercisesRequest
 
 from garmin_coach.db.database import (
@@ -13,13 +13,9 @@ from garmin_coach.db.database import (
     get_activity,
     get_dashboard,
     get_day,
-    get_last_sync_date,
     get_recent,
-    get_watch_bindings,
     get_weather,
-    record_training,
     update_activity_exercises,
-    update_last_sync_date,
 )
 from garmin_coach.services.clock import period_of
 from garmin_coach.services.health_sync import sync_all_brands

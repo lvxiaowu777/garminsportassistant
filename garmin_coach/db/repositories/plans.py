@@ -2,34 +2,14 @@
 from __future__ import annotations
 
 import datetime as dt
-import hashlib
 import json
 from typing import Optional
 
-from sqlalchemy import delete, func, inspect, select, text, update
+from sqlalchemy import delete, select
 
-from garmin_coach.db.models import (
-    Activity,
-    AgentRun,
-    AgentStep,
-    ChatHistory,
-    DailyPlan,
-    DeviceToken,
-    ExerciseName,
-    HealthDaily,
-    MemoryOutbox,
-    StrengthSet,
-    User,
-    UserMemory,
-    WatchBinding,
-)
+from garmin_coach.db.models import DailyPlan
 
-from ._base import (
-    SessionLocal,
-    _insert_stmt,
-    _upsert,
-    _upsert_append,
-)
+from ._base import SessionLocal
 
 
 def _normalize_plan(payload) -> dict | None:

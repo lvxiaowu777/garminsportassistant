@@ -16,6 +16,5 @@ push.py        device_tokens：推送 token
 ``from garmin_coach.db.database import xxx`` 的老写法不用改。
 """
 from __future__ import annotations
-
 from .repositories import *  # noqa: F401,F403
 from .repositories import __all__  # noqa: F401

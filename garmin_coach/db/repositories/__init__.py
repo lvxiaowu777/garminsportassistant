@@ -13,6 +13,7 @@ from .health import *  # noqa: F401,F403
 from .chat import *  # noqa: F401,F403
 from .plans import *  # noqa: F401,F403
 from .push import *  # noqa: F401,F403
+from .safety import *  # noqa: F401,F403
 
 from ._base import SessionLocal, engine, init_db  # noqa: F401
 
@@ -53,6 +54,8 @@ __all__ = [
     "register_device_token",
     "remove_token",
     "save_plan",
+    "save_safety_snapshot",
+    "get_safety_snapshot",
     "seed_exercise_names",
     "select_watch",
     "set_watch_enabled",

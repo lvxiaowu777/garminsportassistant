@@ -16,8 +16,6 @@ from .base import (
     LLMClient,
     LLMError,
     MessageStop,
-    NetworkError,
-    RateLimitError,
     StreamError,
     StreamEvent,
     TextDelta,

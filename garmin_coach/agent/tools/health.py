@@ -183,8 +183,10 @@ class GetSafetyTool(Tool):
         notes = safety.get("notes") or []
         if notes:
             lines.append("注意: " + "; ".join(notes))
-        if safety.get("recent_hrv_avg"):
-            lines.append(f"近 7 天平均 HRV: {safety['recent_hrv_avg']}")
+        if safety.get("hrv_baseline"):
+            lines.append(f"HRV 基线（前 30 天中位数）: {safety['hrv_baseline']}")
+        if safety.get("hard_hr"):
+            lines.append(f"强度判定心率阈值: {safety['hard_hr']} bpm")
         if safety.get("recent_hard_days") is not None:
             lines.append(f"近 3 天高强度次数: {safety['recent_hard_days']}")
         return ToolResult("\n".join(lines))

@@ -6,23 +6,9 @@ import hashlib
 import json
 from typing import Optional
 
-from sqlalchemy import delete, func, inspect, select, text, update
+from sqlalchemy import delete, select
 
-from garmin_coach.db.models import (
-    Activity,
-    AgentRun,
-    AgentStep,
-    ChatHistory,
-    DailyPlan,
-    DeviceToken,
-    ExerciseName,
-    HealthDaily,
-    MemoryOutbox,
-    StrengthSet,
-    User,
-    UserMemory,
-    WatchBinding,
-)
+from garmin_coach.db.models import Activity, HealthDaily, StrengthSet
 
 from .watches import get_active_brand
 
@@ -68,7 +54,13 @@ def _upsert_activity(session, date_str: str, act: dict, user_id: int = 0, brand:
     if not cols.get("activity_id"):
         return
 
-    session.execute(_upsert(Activity, cols, ["user_id", "brand", "activity_id"]))
+    session.execute(
+        _upsert(
+            Activity,
+            cols,
+            ["user_id", "brand", "activity_id"],
+        )
+    )
 
 
 # ═══════════════════════════════════════════════
@@ -90,7 +82,9 @@ def _get_activities(session, date_str: str, user_id: int, brand: str) -> list[di
         if d.get("type") == "strength_training":
             # 力量训练加动作摘要（如"二头弯举4组、深蹲3组"）
             sets = session.execute(
-                select(StrengthSet).where(StrengthSet.activity_id == d["activity_id"]).order_by(StrengthSet.id)
+                select(StrengthSet)
+            .where(StrengthSet.activity_id == d["activity_id"])
+            .order_by(StrengthSet.id)
             ).scalars().all()
             d["summary"] = "、".join(
                 f"{s.name}{s.sets}组" if s.sets else s.name for s in sets
@@ -136,7 +130,9 @@ def get_activity(activity_id: str, user_id: int = 0, brand: str | None = None) -
             return None
         result = _activity_row(row)
         sets = session.execute(
-            select(StrengthSet).where(StrengthSet.activity_id == str(activity_id)).order_by(StrengthSet.id)
+            select(StrengthSet)
+            .where(StrengthSet.activity_id == str(activity_id))
+            .order_by(StrengthSet.id)
         ).scalars().all()
         result["strength_sets"] = [
             {"name": s.name, "sets": s.sets, "reps": s.reps, "reps_detail": s.reps_detail,

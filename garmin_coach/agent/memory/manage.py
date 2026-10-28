@@ -12,7 +12,6 @@ from __future__ import annotations
 
 import json
 import logging
-import re
 
 from .inject import humanize_age
 from .store import KINDS, all_memories, replace_memories

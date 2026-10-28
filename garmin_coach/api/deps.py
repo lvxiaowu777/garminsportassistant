@@ -15,8 +15,6 @@ from fastapi import Depends
 
 from garmin_coach.auth import get_current_user
 from garmin_coach.errors import AuthRequiredError
-from garmin_coach.services.health_sync import SYNCERS
-from garmin_coach.services.watch import SUPPORTED_BRANDS
 
 # 静态资源目录（项目根/static）
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent

@@ -5,9 +5,6 @@
 """
 import sys
 import os
-import hashlib
-import json
-import datetime as dt
 from pathlib import Path
 
 if sys.platform == "win32":
@@ -17,7 +14,6 @@ if sys.platform == "win32":
     except Exception:
         pass
 
-from typing import Optional
 
 # 加载 .env：本文件在 garmin_coach/db/ 下，项目根是上三层
 ENV_PATH = Path(__file__).resolve().parent.parent.parent.parent / ".env"
@@ -28,24 +24,28 @@ if not ENV_PATH.exists():
         Path(os.environ.get("GARMIN_STUDY_DIR") or (Path.home() / "study")) / ".env"
     )
 if ENV_PATH.exists():
-    with open(ENV_PATH, encoding="utf-8") as f:
-        for line in f:
-            line = line.strip()
-            if line and not line.startswith("#") and "=" in line:
-                key, _, val = line.partition("=")
-                os.environ.setdefault(key.strip(), val.strip())
+    # 和 settings.py 用同一套规则：python-dotenv，override=False
+    # （真实环境变量优先于 .env，容器部署时不会被文件覆盖）
+    try:
+        from dotenv import load_dotenv
 
-from sqlalchemy import create_engine, delete, select, func, inspect, text, update
+        load_dotenv(ENV_PATH, override=False)
+    except ImportError:  # pragma: no cover - 没装 dotenv 时退回极简解析
+        with open(ENV_PATH, encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith("#") and "=" in line:
+                    key, _, val = line.partition("=")
+                    os.environ.setdefault(key.strip(), val.strip())
+
+from sqlalchemy import create_engine, func, inspect, text
 from sqlalchemy.dialects.mysql import insert as _mysql_insert
 from sqlalchemy.orm import sessionmaker
 
-from garmin_coach.db.models import (
-    Base, User, WatchBinding, HealthDaily, Activity, ChatHistory, DeviceToken,
-    ExerciseName, StrengthSet, DailyPlan,
-)
+from garmin_coach.db.models import Base
 
 # 数据库连接串只从环境变量读。历史版本在这里硬编码了 MySQL 账号密码，
-# 阶段 0 重构时移除 —— 连接串属于环境配置，不该写进代码，更不该进版本库。
+# 阶段 0库 重构时移除 —— 连接串属于环境配置，不该写进代码，更不该进版本。
 DATABASE_URL = os.environ.get("DATABASE_URL", "")
 if not DATABASE_URL:
     raise RuntimeError(
@@ -118,6 +118,40 @@ def _upsert_append(
     return stmt.on_duplicate_key_update(**{col_name: expr})
 
 
+def _ensure_indexes() -> None:
+    """给已存在的表补索引 / 删冗余索引（幂等，失败只记日志）。
+
+    ``create_all`` 不会改已有表的索引，所以老库要在这里补。
+    """
+    inspector = inspect(engine)
+    tables = set(inspector.get_table_names())
+
+    with engine.begin() as conn:
+        if "memory_outbox" in tables:
+            names = {i["name"] for i in inspector.get_indexes("memory_outbox")}
+            try:
+                if "uq_outbox_session" not in names:
+                    conn.execute(text(
+                        "ALTER TABLE memory_outbox ADD UNIQUE KEY uq_outbox_session (session_id)"
+                    ))
+                if "idx_outbox_status" not in names:
+                    conn.execute(text(
+                        "ALTER TABLE memory_outbox ADD INDEX idx_outbox_status (status, id)"
+                    ))
+                if "idx_plan_user" in names:
+                    conn.execute(text("ALTER TABLE memory_outbox DROP INDEX idx_plan_user"))
+            except Exception as exc:  # noqa: BLE001 - 索引问题不该挡住启动
+                log.warning("memory_outbox index fix skipped: %s", exc)
+
+        if "chat_history" in tables:
+            names = {i["name"] for i in inspector.get_indexes("chat_history")}
+            try:
+                if "idx_chat_user" in names:
+                    conn.execute(text("ALTER TABLE chat_history DROP INDEX idx_chat_user"))
+            except Exception as exc:  # noqa: BLE001
+                log.warning("chat_history index fix skipped: %s", exc)
+
+
 def init_db():
     """建表（幂等）+ 预填标准动作名 + 补用户档案列 + 补聊天语音列。"""
     Base.metadata.create_all(engine)
@@ -129,6 +163,7 @@ def init_db():
     _ensure_chat_columns()
     _ensure_strength_columns()
     _ensure_health_columns()
+    _ensure_indexes()
 
 
 def _ensure_user_columns():

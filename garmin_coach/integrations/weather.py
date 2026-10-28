@@ -6,11 +6,9 @@
     QWEATHER_API_KEY
     QWEATHER_API_HOST
 """
-import sys
 import os
 import json
 import datetime as dt
-from pathlib import Path
 
 import requests
 

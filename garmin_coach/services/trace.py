@@ -14,7 +14,7 @@ import json
 
 from garmin_coach.db.database import SessionLocal
 from garmin_coach.db.models import AgentRun, AgentStep
-from sqlalchemy import func, select
+from sqlalchemy import select
 
 RESULT_PREVIEW = 500  # 工具结果只存前 N 字符，避免 trace 表膨胀
 
@@ -121,7 +121,9 @@ def run_steps(run_id: int) -> list[dict]:
     session = SessionLocal()
     try:
         rows = session.execute(
-            select(AgentStep).where(AgentStep.run_id == run_id).order_by(AgentStep.id)
+            select(AgentStep)
+            .where(AgentStep.run_id == run_id)
+            .order_by(AgentStep.id)
         ).scalars().all()
         return [
             {

@@ -21,10 +21,8 @@ from fastapi.responses import StreamingResponse
 from ..deps import AUDIO_DIR, log, require_user
 from ..schemas import ChatRequest
 
-from garmin_coach.agent.loop.events import DoneEvent, TextEvent, to_sse
-from garmin_coach.agent.session import session_id_for
+from garmin_coach.agent.loop.events import to_sse
 from garmin_coach.db.database import (
-    add_chat,
     clear_chat_history,
     get_chat_dates,
     get_chat_history,

@@ -1,37 +1,13 @@
 """watch_bindings 表：绑定、解绑、启用开关、当前品牌。"""
 from __future__ import annotations
 
-import datetime as dt
-import hashlib
-import json
-from typing import Optional
 
-from sqlalchemy import delete, func, inspect, select, text, update
+from sqlalchemy import delete, select, update
 
-from garmin_coach.db.models import (
-    Activity,
-    AgentRun,
-    AgentStep,
-    ChatHistory,
-    DailyPlan,
-    DeviceToken,
-    ExerciseName,
-    HealthDaily,
-    MemoryOutbox,
-    StrengthSet,
-    User,
-    UserMemory,
-    WatchBinding,
-)
+from garmin_coach.db.models import WatchBinding
 
-from ._base import (
-    SessionLocal,
-    _insert_stmt,
-    _upsert,
-    _upsert_append,
-)
+from ._base import SessionLocal
 
-from .users import _orm_dict
 
 
 def get_active_brand(user_id: int = 0) -> str:
@@ -129,7 +105,10 @@ def select_watch(user_id: int, brand: str) -> bool:
         if not exists:
             return False
         session.execute(
-            WatchBinding.__table__.update().where(WatchBinding.user_id == user_id).values(enabled=0)
+            WatchBinding.__table__
+            .update()
+            .where(WatchBinding.user_id == user_id)
+            .values(enabled=0)
         )
         session.execute(
             WatchBinding.__table__.update().where(

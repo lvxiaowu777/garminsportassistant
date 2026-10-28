@@ -43,7 +43,6 @@ from .events import (
     ToolCallRecord,
     ToolResultEvent,
 )
-from ..prompts import PromptProvider
 
 log = logging.getLogger(__name__)
 

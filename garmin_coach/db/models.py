@@ -282,6 +282,7 @@ class MemoryOutbox(Base):
     updated_at = Column(String(32), default=_now_str)
 
     __table_args__ = (
+        Index("uq_outbox_session", "session_id", unique=True),
         Index("idx_outbox_status", "status", "id"),
     )
 
@@ -329,4 +330,29 @@ class AgentStep(Base):
 
     __table_args__ = (
         Index("idx_steps_run", "run_id", "id"),
+    )
+
+
+class SafetySnapshot(Base):
+    """每日安全档位快照。
+
+    为什么单独一张表：以后要回答"这个档位给得对不对"——
+    拿当天的档位 vs 用户实际训练量对比，就能做回测/校准。
+    一天一行（date + user_id 唯一），只记当天第一次算出来的结果。
+    """
+
+    __tablename__ = "safety_snapshots"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    date = Column(String(10), nullable=False)
+    user_id = Column(Integer, nullable=False, default=0)
+    max_tier = Column(String(16))              # REST/EASY/MODERATE/HARD/LONG
+    blockers = Column(Text)                    # JSON 数组：触发降档的原因
+    hard_days = Column(Integer, default=0)     # 最近 3 天上强度的天数
+    hrv_baseline = Column(Float)               # 前 N 天 HRV 中位数
+    hrmax = Column(Integer)                    # 估算最大心率（Tanaka）
+    created_at = Column(String(32), default=_now_str)
+
+    __table_args__ = (
+        UniqueConstraint("date", "user_id", name="uq_safety_snapshot_user_date"),
     )
