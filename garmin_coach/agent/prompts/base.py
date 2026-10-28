@@ -149,16 +149,6 @@ def _period(hour: int) -> str:
     return "夜晚"
 
 
-def _time_block(now: dt.datetime | None = None) -> str:
-    current = now or dt.datetime.now()
-    return (
-        f"\n## 当前时间\n{current.strftime('%Y-%m-%d %H:%M')}"
-        f"（{_period(current.hour)}，周"
-        + "一二三四五六日"[current.weekday()]
-        + "）\n"
-    )
-
-
 class PromptProvider:
     """提示词依赖：Agent 构造时注入，方便替换 / 追加段落 / 测试。
 
@@ -169,7 +159,7 @@ class PromptProvider:
         self._base = base
 
     def build(self, extra: list[str] | None = None) -> str:
-        """**只返回稳定部分**（身份/规则/工具用法）。
+        """**只返回稳定部分**（身份 / 规则 / 工具用法）。
 
         时间、记忆、数据新鲜度这些每轮都变的东西**不放这里**——
         它们会作为一条 user 上下文消息插在最后一条用户消息之前。
