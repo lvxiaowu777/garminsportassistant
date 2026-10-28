@@ -364,7 +364,7 @@ class Agent:
                         chars=len(result.content),
                     )
                 )
-                conv.add_tool_result(call_id, result.content)
+                conv.add_tool_result(call_id, result.content, result.is_error)
                 records.append(
                     ToolCallRecord(
                         name=name,

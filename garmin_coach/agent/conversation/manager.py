@@ -109,15 +109,20 @@ class ConversationManager:
             }
         )
 
-    def add_tool_result(self, call_id: str, content: str) -> None:
-        """工具结果（不落库：属于这一轮的临时数据）。"""
-        self.messages.append(
-            {
-                "role": "tool",
-                "tool_call_id": call_id,
-                "content": content,
-            }
-        )
+    def add_tool_result(self, call_id: str, content: str, is_error: bool = False) -> None:
+        """工具结果（不落库：属于这一轮的临时数据）。
+
+        ``is_error`` 会一路带到 Anthropic 的 ``tool_result`` block，
+        让模型明确知道"这次失败了、该换参数"，而不是从中文前缀去猜。
+        """
+        message = {
+            "role": "tool",
+            "tool_call_id": call_id,
+            "content": content,
+        }
+        if is_error:
+            message["is_error"] = True
+        self.messages.append(message)
 
     # ── 写：只落库（错误占位）──
 

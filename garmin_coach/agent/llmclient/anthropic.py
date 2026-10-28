@@ -88,11 +88,15 @@ def to_anthropic_messages(messages: list[dict[str, Any]]) -> list[dict[str, Any]
         content = (msg.get("content") or "").strip()
 
         if role == "tool":
-            push("user", [{
+            block = {
                 "type": "tool_result",
                 "tool_use_id": msg.get("tool_call_id") or "",
-                "content": content,
-            }])
+                # Anthropic 对空 content 不友好，给个占位
+                "content": content or "(无输出)",
+            }
+            if msg.get("is_error"):
+                block["is_error"] = True
+            push("user", [block])
             continue
 
         if role == "assistant":
@@ -115,6 +119,11 @@ def to_anthropic_messages(messages: list[dict[str, Any]]) -> list[dict[str, Any]
 
         if role == "user":
             push("user", _text_blocks(content))
+
+    # Anthropic 要求第一条消息是 user：恢复历史时截断可能正好落在 assistant 上
+    # （比如只取最近 20 条，第一条是 assistant）。OpenAI 兼容端点容忍，Anthropic 直接 400。
+    while out and out[0]["role"] != "user":
+        out.pop(0)
 
     return out
 
@@ -219,6 +228,9 @@ class AnthropicClient(LLMClient):
         try:
             async with self._client.messages.stream(**payload) as stream:
                 async for event in stream:
+                    # NOTE: 现在没开 extended thinking；如果以后开，
+                    # thinking block（含 signature）必须原样带回下一条 assistant
+                    # 消息，否则 Anthropic 对带 tool_use 的轮次会 400。
                     if event.type == "content_block_start":
                         block = event.content_block
                         if block.type == "thinking":

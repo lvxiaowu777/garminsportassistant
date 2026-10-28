@@ -23,7 +23,10 @@ def serialize_messages(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
         if role == "tool":
             call_id = msg.get("tool_call_id")
             if call_id in pending_ids:
-                out.append({"role": "tool", "tool_call_id": call_id, "content": content})
+                item = {"role": "tool", "tool_call_id": call_id, "content": content}
+                if msg.get("is_error"):
+                    item["is_error"] = True
+                out.append(item)
                 pending_ids.discard(call_id)
             continue
 
