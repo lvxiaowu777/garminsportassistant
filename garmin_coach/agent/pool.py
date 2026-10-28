@@ -193,26 +193,6 @@ class AgentPool:
             agent.close()
         return self._sessions.reset(user_id, wipe_messages=True, wipe_memory=wipe_memory)
 
-    # ── 观测 ──
-
-    def stats(self) -> dict:
-        return {
-            "agents": len(self._agents),
-            "ttl_s": self._ttl,
-            "sessions": self._sessions.stats(),
-            "detail": [
-                {
-                    "user_id": uid,
-                    "session_id": a.session_id,
-                    "provider": a.provider,
-                    "turns": a.turns,
-                    "idle_s": int(a.idle_seconds),
-                }
-                for uid, a in self._agents.items()
-            ],
-        }
-
-
 #: 进程内单例（单 worker；多 worker 要换 Redis）
 _pool: AgentPool | None = None
 

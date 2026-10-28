@@ -11,8 +11,7 @@ from __future__ import annotations
 
 import datetime as dt
 import logging
-import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 log = logging.getLogger(__name__)
 
@@ -31,8 +30,6 @@ class Session:
 
     session_id: str
     user_id: int
-    created_at: float = field(default_factory=time.time)
-    last_active: float = field(default_factory=time.time)
     closed: bool = False
 
     # ── 恢复 ──
@@ -65,13 +62,6 @@ class Session:
         except Exception as exc:  # noqa: BLE001
             log.warning("session append failed (%s): %s: %s", role, self.session_id, exc)
 
-    def touch(self) -> None:
-        self.last_active = time.time()
-
-    @property
-    def idle_seconds(self) -> float:
-        return time.time() - self.last_active
-
     # ── 结束 ──
 
     def close(self) -> None:
@@ -86,5 +76,3 @@ class Session:
         except Exception as exc:  # noqa: BLE001
             log.warning("session close failed: %s: %s", self.session_id, exc)
 
-    def __repr__(self) -> str:  # pragma: no cover - 调试用
-        return f"<Session {self.session_id}>"
