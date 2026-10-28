@@ -96,7 +96,7 @@ class PlanDay(BaseModel):
 
 
 class PlanParams(BaseModel):
-    days: list[PlanDay] = Field(..., description="未来 3 天的计划")
+    days: list[PlanDay] = Field(..., description="未来一周（7 天）的计划")
 
 
 # ────────────────────────────── 格式化辅助 ──────────────────────────────
@@ -522,9 +522,10 @@ class RecordTrainingTool(Tool):
 class SavePlanTool(Tool):
     name = "save_plan"
     description = (
-        "保存未来几天的训练计划，供后续对话引用。\n"
-        "**只在用户明确要求安排未来计划时调用**（「未来三天怎么练」「帮我安排一下」），"
+        "保存未来一周（7 天）的训练计划，供后续对话引用。\n"
+        "**只在用户明确要求安排计划时调用**（「这周怎么练」「帮我安排一下」），"
         "并且要在你已经用自然语言把计划讲清楚之后再调。"
+        "默认给 7 天；用户明确只要 3 天就给 3 天。"
     )
     params_model = PlanParams
 
