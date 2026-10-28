@@ -248,35 +248,23 @@ def record_training(user_id: int, train_type: str, duration_min: int, notes: str
         merged: list[str] = []
         added: list[str] = []
 
-        if train_type == "strength_training":
-            # 力量训练一天只一条：先找当天的，没有才建
-            existing = session.execute(
-                select(Activity.activity_id).where(
-                    Activity.user_id == user_id, Activity.date == date_str,
-                    Activity.brand == brand, Activity.type == "strength_training",
-                ).order_by(Activity.id).limit(1)
-            ).first()
-            if existing:
-                activity_id = existing[0]
-            else:
-                activity_id = f"manual_{date_str}_{key}"
-                session.execute(_insert_stmt(Activity, {
-                    "date": date_str, "user_id": user_id, "brand": brand,
-                    "activity_id": activity_id, "type": train_type,
-                    "time": time_str, "duration_min": duration_min or 30,
-                }))
-                created = True
+        # 力量训练一天只一条：先找当天的，没有才建
+        existing = session.execute(
+            select(Activity.activity_id).where(
+                Activity.user_id == user_id, Activity.date == date_str,
+                Activity.brand == brand, Activity.type == "strength_training",
+            ).order_by(Activity.id).limit(1)
+        ).first()
+        if existing:
+            activity_id = existing[0]
         else:
             activity_id = f"manual_{date_str}_{key}"
-            session.execute(_upsert(
-                Activity,
-                {
-                    "date": date_str, "user_id": user_id, "brand": brand,
-                    "activity_id": activity_id, "type": train_type,
-                    "time": time_str, "duration_min": duration_min or 30,
-                },
-                ["user_id", "brand", "activity_id"],
-            ))
+            session.execute(_insert_stmt(Activity, {
+                "date": date_str, "user_id": user_id, "brand": brand,
+                "activity_id": activity_id, "type": train_type,
+                "time": time_str, "duration_min": duration_min or 30,
+            }))
+            created = True
 
         note = f"[{time_str}] 手动记录: {train_type} {duration_min}min {notes}".strip()
         session.execute(
