@@ -38,11 +38,11 @@ if ENV_PATH.exists():
                     key, _, val = line.partition("=")
                     os.environ.setdefault(key.strip(), val.strip())
 
-from sqlalchemy import create_engine, func, inspect, select, text
+from sqlalchemy import create_engine, func
 from sqlalchemy.dialects.mysql import insert as _mysql_insert
 from sqlalchemy.orm import sessionmaker
 
-from garmin_coach.db.models import Base, DailyPlan
+from garmin_coach.db.models import Base
 
 # 数据库连接串只从环境变量读。历史版本在这里硬编码了 MySQL 账号密码，
 # 阶段 0库 重构时移除 —— 连接串属于环境配置，不该写进代码，更不该进版本。
@@ -118,163 +118,23 @@ def _upsert_append(
     return stmt.on_duplicate_key_update(**{col_name: expr})
 
 
-def _ensure_indexes() -> None:
-    """给已存在的表补索引 / 删冗余索引（幂等，失败只记日志）。
+def init_db() -> None:
+    """建表 + 预填动作名。
 
-    ``create_all`` 不会改已有表的索引，所以老库要在这里补。
+    **表结构以 ``models.py`` 为唯一事实来源**：改字段就改模型，
+    然后跑 ``python scripts/reset_db.py`` 重建库（开发期，数据可重灌）。
     """
-    inspector = inspect(engine)
-    tables = set(inspector.get_table_names())
-
-    with engine.begin() as conn:
-        if "memory_outbox" in tables:
-            names = {i["name"] for i in inspector.get_indexes("memory_outbox")}
-            try:
-                if "uq_outbox_session" not in names:
-                    conn.execute(text(
-                        "ALTER TABLE memory_outbox ADD UNIQUE KEY uq_outbox_session (session_id)"
-                    ))
-                if "idx_outbox_status" not in names:
-                    conn.execute(text(
-                        "ALTER TABLE memory_outbox ADD INDEX idx_outbox_status (status, id)"
-                    ))
-                if "idx_plan_user" in names:
-                    conn.execute(text("ALTER TABLE memory_outbox DROP INDEX idx_plan_user"))
-            except Exception as exc:  # noqa: BLE001 - 索引问题不该挡住启动
-                log.warning("memory_outbox index fix skipped: %s", exc)
-
-        if "chat_history" in tables:
-            names = {i["name"] for i in inspector.get_indexes("chat_history")}
-            try:
-                if "idx_chat_user" in names:
-                    conn.execute(text("ALTER TABLE chat_history DROP INDEX idx_chat_user"))
-            except Exception as exc:  # noqa: BLE001
-                log.warning("chat_history index fix skipped: %s", exc)
-
-
-def _ensure_plan_columns() -> None:
-    """给 daily_plans 补 start_date / end_date，并从 plan_json 回填（幂等）。"""
-    inspector = inspect(engine)
-    if "daily_plans" not in set(inspector.get_table_names()):
-        return
-    existing = {c["name"] for c in inspector.get_columns("daily_plans")}
-    with engine.begin() as conn:
-        try:
-            if "start_date" not in existing:
-                conn.execute(text("ALTER TABLE daily_plans ADD COLUMN start_date VARCHAR(10) DEFAULT ''"))
-            if "end_date" not in existing:
-                conn.execute(text("ALTER TABLE daily_plans ADD COLUMN end_date VARCHAR(10) DEFAULT ''"))
-            names = {i["name"] for i in inspector.get_indexes("daily_plans")}
-            if "idx_plan_active" not in names:
-                conn.execute(text(
-                    "CREATE INDEX idx_plan_active ON daily_plans (user_id, end_date)"
-                ))
-        except Exception as exc:  # noqa: BLE001 - 启动不该被索引问题卡住
-            log.warning("daily_plans column/index fix skipped: %s", exc)
-
-    # 回填：从 plan_json 里取 min/max 日期
-    session = SessionLocal()
-    try:
-        rows = session.execute(
-            select(DailyPlan).where(DailyPlan.end_date == "")
-        ).scalars().all()
-        import json as _json
-
-        for row in rows:
-            try:
-                data = _json.loads(row.plan_json or "{}")
-                days = data.get("days") if isinstance(data, dict) else data
-                dates = sorted(d.get("date") for d in (days or []) if d.get("date"))
-            except Exception:  # noqa: BLE001
-                dates = []
-            if dates:
-                row.start_date, row.end_date = dates[0], dates[-1]
-            else:
-                row.start_date = row.end_date = row.date or ""
-        session.commit()
-    except Exception as exc:  # noqa: BLE001
-        session.rollback()
-        log.warning("daily_plans backfill skipped: %s", exc)
-    finally:
-        session.close()
-
-
-def init_db():
-    """建表（幂等）+ 预填标准动作名 + 补用户档案列 + 补聊天语音列。"""
     Base.metadata.create_all(engine)
     # 延迟导入：seed 在 health 里，health 又依赖本模块，顶层导入会循环
     from .health import seed_exercise_names
 
     seed_exercise_names()
-    _ensure_user_columns()
-    _ensure_chat_columns()
-    _ensure_strength_columns()
-    _ensure_health_columns()
-    _ensure_indexes()
-    _ensure_plan_columns()
 
 
-def _ensure_user_columns():
-    """为已存在的 users 表补充需求8的档案列（幂等）。"""
-    inspector = inspect(engine)
-    existing = {c["name"] for c in inspector.get_columns("users")}
-    new_cols = {
-        "height_cm": "FLOAT", "weight_kg": "FLOAT", "age": "INT",
-        "gender": "VARCHAR(8)", "body_fat_pct": "FLOAT", "muscle_mass_kg": "FLOAT",
-        "goal": "VARCHAR(32)", "goal_target": "VARCHAR(64)",
-        "training_years": "FLOAT", "training_freq_per_week": "INT",
-        "last_sync_date": "VARCHAR(10)",
-        "last_sync_at": "VARCHAR(32)",
-        # 2026-08-20 新增：训练类型 + 比赛列表（JSON TEXT）
-        "training_types": "TEXT",
-        "races": "TEXT",
-    }
-    with engine.begin() as conn:
-        for col, typ in new_cols.items():
-            if col not in existing:
-                conn.execute(text(f"ALTER TABLE users ADD COLUMN {col} {typ}"))
-
-
-def _ensure_chat_columns():
-    """为已存在的 chat_history 表补充语音消息列（幂等）。"""
-    inspector = inspect(engine)
-    existing = {c["name"] for c in inspector.get_columns("chat_history")}
-    new_cols = {
-        "type": "VARCHAR(16) DEFAULT 'text'",
-        "audio_url": "VARCHAR(255)",
-        "duration_sec": "INT",
-    }
-    with engine.begin() as conn:
-        for col, typ in new_cols.items():
-            if col not in existing:
-                conn.execute(text(f"ALTER TABLE chat_history ADD COLUMN {col} {typ}"))
-
-
-def _ensure_strength_columns():
-    """为已存在的 strength_sets 表补充器械/明细列（幂等）。"""
-    inspector = inspect(engine)
-    existing = {c["name"] for c in inspector.get_columns("strength_sets")}
-    new_cols = {
-        "reps_detail": "VARCHAR(128)",
-        "equipment": "VARCHAR(64)",
-    }
-    with engine.begin() as conn:
-        for col, typ in new_cols.items():
-            if col not in existing:
-                conn.execute(text(f"ALTER TABLE strength_sets ADD COLUMN {col} {typ}"))
-
-
-def _ensure_health_columns():
-    """为已存在的 health_daily 表补充后加列（幂等）。"""
-    inspector = inspect(engine)
-    existing = {c["name"] for c in inspector.get_columns("health_daily")}
-    new_cols = {
-        "body_battery_now": "INT",
-    }
-    with engine.begin() as conn:
-        for col, typ in new_cols.items():
-            if col not in existing:
-                conn.execute(text(f"ALTER TABLE health_daily ADD COLUMN {col} {typ}"))
+def reset_db() -> None:
+    """删掉所有表再重建（开发期改表结构用，不保留数据）。"""
+    Base.metadata.drop_all(engine)
+    init_db()
 
 
 # ═══════════════════════════════════════════════

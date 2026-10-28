@@ -49,6 +49,7 @@ __all__ = [
     "get_watch_enabled",
     "get_weather",
     "init_db",
+    "reset_db",
     "mark_synced",
     "record_training",
     "register_device_token",
