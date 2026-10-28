@@ -1,12 +1,17 @@
-"""待提炼队列：会话结束投一条，离线消费。
+"""待提炼队列：**夜间批量扫历史 → 提炼 → 治理**。
 
 链路：
-  会话回收 / 跨天 → enqueue_session()
-  定时任务（或手动）→ process_outbox()
-      → 读该会话的 user 消息
-      → extract_with_llm()（失败退规则版）
-      → upsert_memory()
-      → consolidate()（管理 Agent：合并/删除）
+  每天 04:07 → run_nightly()
+      → enqueue_recent(3)：把最近 3 天有聊天、但还没投过的会话入队
+        （扫 3 天是为了回补"那天 04:07 服务没起来"的情况；正常只处理前一天）
+      → process_outbox()
+          → 读该会话的 user 消息
+          → extract_with_llm()（失败退规则版）
+          → upsert_memory()
+          → consolidate()（管理 Agent：合并/删除）
+
+注意：会话关闭（1h 空闲回收）**不再投递任务**——只释放内存。
+这样记忆提炼每天只跑一次，不会"聊一小时就总结一次"。
 """
 from __future__ import annotations
 
@@ -121,11 +126,19 @@ def enqueue_day(days_ago: int = 1) -> int:
     return count
 
 
-def run_nightly(days_ago: int = 1) -> dict:
-    """晚间任务：投递前一天会话 → 提炼 → 治理（同步入口，给调度器用）。"""
+def enqueue_recent(days: int = 3) -> int:
+    """把最近 N 天（不含今天）有聊天但没投过的会话入队；返回投递数。"""
+    total = 0
+    for days_ago in range(1, days + 1):
+        total += enqueue_day(days_ago)
+    return total
+
+
+def run_nightly(days: int = 3) -> dict:
+    """夜间任务：投递最近 N 天的会话 → 提炼 → 治理（同步入口，给调度器用）。"""
     import asyncio
 
-    enqueued = enqueue_day(days_ago)
+    enqueued = enqueue_recent(days)
     stats = asyncio.run(process_outbox(50))
     result = {"enqueued": enqueued, **stats}
     log.info("memory nightly: %s", result)

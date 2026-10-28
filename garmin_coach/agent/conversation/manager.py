@@ -53,7 +53,7 @@ class ConversationManager:
         if self._session is not None:
             self.load_history(self._session.resume())
 
-    def load_history(self, history: list[dict] | None, limit: int = 20) -> None:
+    def load_history(self, history: list[dict] | None, limit: int | None = None) -> None:
         """把历史消息并进来（数据库只存 user/assistant 纯文本）。
 
         这里只做**过滤**：只收 user / assistant（tool 属于某一轮，不跨请求），
@@ -62,7 +62,10 @@ class ConversationManager:
         """
         if not history:
             return
-        for item in history[-limit:]:
+        # 默认全量：resume() 已经带了安全上限，这里再截一刀会丢上下文
+        if limit is not None:
+            history = history[-limit:]
+        for item in history:
             role = item.get("role")
             if role not in ("user", "assistant"):
                 continue

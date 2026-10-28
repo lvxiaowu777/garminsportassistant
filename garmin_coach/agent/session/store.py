@@ -15,8 +15,9 @@ from dataclasses import dataclass
 
 log = logging.getLogger(__name__)
 
-#: 恢复时最多带多少条历史（长会话不必全量灌进去）
-RESUME_LIMIT = 50
+#: 恢复时最多带多少条（≈100 轮对话）。一天内正常聊不到这个量；
+#: 上限只是防止极端会话撑爆上下文，等做了上下文压缩可以再放大。
+RESUME_LIMIT = 200
 
 
 def session_id_for(user_id: int, day: dt.date | None = None) -> str:
@@ -65,14 +66,10 @@ class Session:
     # ── 结束 ──
 
     def close(self) -> None:
-        """会话结束：投一条记忆提炼待办（同一会话只投一次）。"""
-        if self.closed:
-            return
-        self.closed = True
-        try:
-            from garmin_coach.agent.memory import enqueue_session
+        """会话结束：只标记关闭，**不触发记忆提炼**。
 
-            enqueue_session(self.user_id, self.session_id)
-        except Exception as exc:  # noqa: BLE001
-            log.warning("session close failed: %s: %s", self.session_id, exc)
+        记忆提炼统一放到每天 04:07 的夜间任务（扫前一天及漏掉的会话），
+        避免"聊一小时就总结一次"这种过度提炼，也少一次写库。
+        """
+        self.closed = True
 

@@ -11,7 +11,6 @@ from __future__ import annotations
 import logging
 
 from .inject import build_injection as _build_injection
-from .outbox import enqueue_session
 
 log = logging.getLogger(__name__)
 
@@ -24,5 +23,3 @@ class MemoryManager:
         """把长期记忆 + 数据新鲜度拼成注入块（失败返回空）。"""
         return await _build_injection(self.user_id)
 
-    def close_session(self, session_id: str) -> None:
-        enqueue_session(self.user_id, session_id)
