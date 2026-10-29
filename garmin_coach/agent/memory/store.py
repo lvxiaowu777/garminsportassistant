@@ -64,6 +64,26 @@ def upsert_memory(
         session.close()
 
 
+def delete_memory(user_id: int, kind: str, key: str) -> bool:
+    """删除一条记忆（用户说"这个已经过去了"时用）。删掉了返回 True。"""
+    session = SessionLocal()
+    try:
+        result = session.execute(
+            delete(UserMemory).where(
+                UserMemory.user_id == user_id,
+                UserMemory.kind == kind,
+                UserMemory.key == key,
+            )
+        )
+        session.commit()
+        return bool(result.rowcount)
+    except Exception:
+        session.rollback()
+        return False
+    finally:
+        session.close()
+
+
 def top_memories(user_id: int, limit: int = 8) -> list[dict]:
     """取该用户最相关的记忆（当前按更新时间倒序）。"""
     session = SessionLocal()

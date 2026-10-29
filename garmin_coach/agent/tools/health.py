@@ -556,6 +556,8 @@ def build_default_registry(user_id: int = 0):
     """
     from .registry import ToolRegistry
 
+    from .memory import ForgetMemoryTool, UpdateMemoryTool
+
     registry = ToolRegistry()
     for tool_cls in (
         GetSafetyTool,
@@ -567,6 +569,8 @@ def build_default_registry(user_id: int = 0):
         GetProfileTool,
         RecordTrainingTool,
         SavePlanTool,
+        UpdateMemoryTool,
+        ForgetMemoryTool,
     ):
         registry.register(tool_cls(user_id=user_id))
     return registry
