@@ -1081,6 +1081,11 @@ function renderChat() {
 let _audio = null;
 function playAudio(url, rowEl) {
   if (!url) return;
+  // 只允许站内音频，防止 javascript:/外链注入
+  if (!/^\/static\/audio\/[A-Za-z0-9._-]+$/.test(url)) {
+    toast('音频地址不合法');
+    return;
+  }
   if (_audio && _audio.dataset.src === url && !_audio.paused) {
     _audio.pause();
     if (rowEl) rowEl.querySelector('.audio-play').textContent = '▶';

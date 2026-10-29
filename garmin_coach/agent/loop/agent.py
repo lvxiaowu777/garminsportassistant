@@ -403,7 +403,13 @@ class Agent:
                         chars=len(result.content),
                     )
                 )
-                conv.add_tool_result(call_id, result.content, result.is_error)
+                # 包一层数据标记：模型更容易把工具返回当"数据"而不是"指令"
+                wrapped = (
+                    f'<data tool="{name}">\n{result.content}\n</data>'
+                    if not result.is_error
+                    else result.content
+                )
+                conv.add_tool_result(call_id, wrapped, result.is_error)
                 records.append(
                     ToolCallRecord(
                         name=name,
