@@ -205,6 +205,10 @@ class Agent:
         injected_blocks = await self._build_injected()
 
         async with self._lock:
+            # 上下文超预算就先压缩（失败自动跳过，不影响本轮）
+            compacted = await self._conv.maybe_compact(self._summarize)
+            if compacted:
+                log.info("compacted context: %s", compacted)
             t0 = time.perf_counter()
             # CM 负责「进内存 + 落库」（语音的 meta 一起透传）
             self._conv.add_user(user_message, **(user_record or {}))
@@ -238,6 +242,25 @@ class Agent:
             if isinstance(event, DoneEvent):
                 result = event.result
         return result or AgentResult(text="", turns=0)
+
+    # ── 压缩 ──
+
+    async def _summarize(self, messages: list[dict[str, Any]]) -> str:
+        """把待压缩的消息交给 LLM，返回摘要文本（不带工具）。"""
+        from garmin_coach.agent.conversation.compact import COMPACT_PROMPT
+
+        chunks: list[str] = []
+        async for event in self.llm.stream(
+            messages,
+            system=COMPACT_PROMPT,
+            max_tokens=1200,
+            temperature=0.3,
+        ):
+            if isinstance(event, TextDelta):
+                chunks.append(event.text)
+            elif isinstance(event, StreamError):
+                raise RuntimeError(event.message)
+        return "".join(chunks)
 
     # ── trace ──
 

@@ -38,9 +38,17 @@ class Session:
     def resume(self, limit: int = RESUME_LIMIT) -> list[dict]:
         """读历史消息（失败返回空：没有历史也要能聊）。"""
         try:
-            from garmin_coach.db.database import get_chat_history
+            from garmin_coach.db.database import get_chat_history, get_last_compact_id
 
-            rows = get_chat_history(limit, self.user_id, session_id=self.session_id) or []
+            # 有压缩边界就从边界那条开始读（边界之前的内容已经在摘要里）
+            boundary = get_last_compact_id(self.user_id, self.session_id)
+            after_id = boundary - 1 if boundary is not None else None
+            rows = get_chat_history(
+                limit,
+                self.user_id,
+                session_id=self.session_id,
+                after_id=after_id,
+            ) or []
             # 中断占位行只给 UI 看，不进模型上下文（否则它会把报错当成自己说过的话）
             return [r for r in rows if r.get("type") != "error"]
         except Exception as exc:  # noqa: BLE001 - 恢复失败不该让对话失败

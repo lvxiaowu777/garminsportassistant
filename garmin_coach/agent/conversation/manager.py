@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Any
+from typing import Any, Awaitable, Callable
 
 from ..session.store import Session
 from .serialize import serialize_messages
@@ -67,12 +67,48 @@ class ConversationManager:
             history = history[-limit:]
         for item in history:
             role = item.get("role")
-            if role not in ("user", "assistant"):
-                continue
+            msg_type = item.get("type") or "text"
             content = (item.get("content") or "").strip()
             if not content:
                 continue
+            if msg_type == "compact":
+                # 压缩边界：作为一条上下文消息（user 角色，UI 不显示）
+                self.messages.append({"role": "user", "content": content, "context": True})
+                continue
+            if role not in ("user", "assistant"):
+                continue
             self.messages.append({"role": role, "content": content})
+
+    # ── 压缩 ──
+
+    async def maybe_compact(
+        self,
+        summarize: Callable[[list[dict[str, Any]]], Awaitable[str]],
+    ) -> dict[str, Any] | None:
+        """上下文超预算时压缩旧消息（失败返回 None，绝不影响本轮对话）。
+
+        ``summarize`` 由 Agent 提供：把消息列表交给 LLM，返回摘要文本。
+        """
+        from .compact import build_boundary, plan_cut
+
+        cut = plan_cut(self.messages)
+        if cut is None:
+            return None
+        old = self.messages[:cut]
+        try:
+            summary = await summarize(old)
+        except Exception as exc:  # noqa: BLE001 - 压缩失败就跳过，不阻塞
+            log.warning("compaction failed: session=%s: %s", self.session_id, exc)
+            return None
+        if not (summary or "").strip():
+            return None
+
+        boundary = build_boundary(summary)
+        kept = self.messages[cut:]
+        self.messages = [{"role": "user", "content": boundary, "context": True}] + kept
+        # 落库：type=compact，恢复时从这里开始
+        self._persist("user", boundary, msg_type="compact")
+        return {"dropped": cut, "kept": len(kept), "chars": len(boundary)}
 
     # ── 写：进内存 + 落库 ──
 

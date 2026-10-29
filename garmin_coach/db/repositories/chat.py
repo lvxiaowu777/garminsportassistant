@@ -25,7 +25,8 @@ def add_chat(role: str, content: str, user_id: int = 0, msg_type: str = "text",
 
 
 def get_chat_history(limit: int = 50, user_id: int = 0, date_str: str = "",
-                     session_id: str | None = None) -> list[dict]:
+                     session_id: str | None = None,
+                     after_id: int | None = None) -> list[dict]:
     """取聊天历史。
 
     - ``session_id`` 给了就**只取该会话**的消息（会话恢复用）；
@@ -36,6 +37,8 @@ def get_chat_history(limit: int = 50, user_id: int = 0, date_str: str = "",
         q = select(ChatHistory).where(ChatHistory.user_id == user_id)
         if session_id:
             q = q.where(ChatHistory.session_id == session_id)
+        if after_id is not None:
+            q = q.where(ChatHistory.id > after_id)
         else:
             if not date_str:
                 date_str = dt.date.today().isoformat()  # 默认今天
@@ -44,6 +47,25 @@ def get_chat_history(limit: int = 50, user_id: int = 0, date_str: str = "",
             q.order_by(ChatHistory.id.desc()).limit(limit)
         ).scalars().all()
         return [{c.name: getattr(r, c.name) for c in ChatHistory.__table__.columns} for r in reversed(rows)]
+    finally:
+        session.close()
+
+
+def get_last_compact_id(user_id: int, session_id: str) -> int | None:
+    """该会话最后一条压缩边界的 id（没有返回 None）。"""
+    session = SessionLocal()
+    try:
+        row = session.execute(
+            select(ChatHistory.id)
+            .where(
+                ChatHistory.user_id == user_id,
+                ChatHistory.session_id == session_id,
+                ChatHistory.type == "compact",
+            )
+            .order_by(ChatHistory.id.desc())
+            .limit(1)
+        ).first()
+        return row[0] if row else None
     finally:
         session.close()
 

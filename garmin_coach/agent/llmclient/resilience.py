@@ -65,8 +65,10 @@ async def resilient_stream(
     timeout = IDLE_TIMEOUT if idle_timeout is None else idle_timeout
 
     attempt = 0
+    retry_after: float | None = None
     while True:
         emitted = False
+        retry_after = None
         try:
             stream = factory()
             iterator = stream.__aiter__()
@@ -83,6 +85,7 @@ async def resilient_stream(
         except Exception as exc:  # noqa: BLE001 - 统一转成事件
             error = StreamError(describe(exc))
             retry_ok = _retryable(exc)
+            retry_after = getattr(exc, "retry_after", None)
 
         if emitted or not retry_ok or attempt >= max_retries:
             yield error
@@ -90,5 +93,7 @@ async def resilient_stream(
 
         attempt += 1
         delay = min(2.0 ** attempt, 8.0)
+        if retry_after:
+            delay = max(delay, float(retry_after))
         log.warning("LLM 流失败，%ss 后重试（%d/%d）：%s", delay, attempt, max_retries, error.message)
         await asyncio.sleep(delay)

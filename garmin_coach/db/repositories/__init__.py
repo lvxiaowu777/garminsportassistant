@@ -32,6 +32,7 @@ __all__ = [
     "get_activity",
     "get_chat_dates",
     "get_chat_history",
+    "get_last_compact_id",
     "get_dashboard",
     "get_day",
     "get_enabled_user_ids",

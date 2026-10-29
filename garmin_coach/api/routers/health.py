@@ -138,7 +138,13 @@ async def api_record_training(
     import asyncio
 
     result = await asyncio.to_thread(
-        record_strength, user_id, req.type, req.duration_min, req.notes, req.date
+        record_strength,
+        user_id,
+        req.type,
+        req.duration_min,
+        req.notes,
+        req.date,
+        [e.model_dump(exclude_none=True) for e in req.exercises],
     )
     if result.get("ok"):
         detail = ""

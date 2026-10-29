@@ -50,11 +50,21 @@ class UpdateExercisesRequest(BaseModel):
     exercises: list = []
 
 
+class ExerciseItem(BaseModel):
+    name: str                          # 动作名（卧推/深蹲…）
+    sets: int | None = None            # 组数
+    reps: int | None = None            # 每组次数
+    reps_detail: str | None = None     # 次数明细（如 12,10,8）
+    weight_kg: float | None = None     # 重量
+    equipment: str | None = None       # 器械
+
+
 class RecordTrainingRequest(BaseModel):
     type: str = "strength_training"  # running / strength_training / cycling 等
     notes: str = ""                   # 训练内容描述
     duration_min: int = 0             # 时长（分钟）
     date: str = ""                    # 日期，默认今天
+    exercises: list[ExerciseItem] = []  # 动作明细（计时器结束后补录，可空）
 
 
 # ── 用户档案 ──
