@@ -46,6 +46,22 @@ def copy_user_data(src_id: int, dst_id: int) -> dict:
         for field in PROFILE_FIELDS:
             setattr(dst, field, getattr(src, field))
 
+        # 可重复执行：先清掉目标用户已有的复制数据，避免主键冲突
+        old_ids = [
+            r[0] for r in session.query(Activity.activity_id)
+            .filter(Activity.user_id == dst_id).all()
+        ]
+        if old_ids:
+            session.query(StrengthSet).filter(StrengthSet.activity_id.in_(old_ids)).delete(
+                synchronize_session=False
+            )
+        session.query(Activity).filter(Activity.user_id == dst_id).delete(synchronize_session=False)
+        session.query(HealthDaily).filter(HealthDaily.user_id == dst_id).delete(synchronize_session=False)
+        session.query(DailyPlan).filter(DailyPlan.user_id == dst_id).delete(synchronize_session=False)
+        session.query(UserMemory).filter(UserMemory.user_id == dst_id).delete(synchronize_session=False)
+        session.query(WatchBinding).filter(WatchBinding.user_id == dst_id).delete(synchronize_session=False)
+        session.flush()
+
         # 手表绑定
         binds = session.query(WatchBinding).filter(WatchBinding.user_id == src_id).all()
         for b in binds:

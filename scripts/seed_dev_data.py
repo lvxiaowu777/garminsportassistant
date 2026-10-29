@@ -30,18 +30,48 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))          # garmin_coach 包在项目根
 sys.path.insert(0, str(ROOT / "src"))  # auth 等旧模块在 src
 
+# 先加载 .env，后面从 DATABASE_URL 推导 MySQL 连接信息
+try:
+    from dotenv import load_dotenv
+
+    load_dotenv(ROOT / ".env", override=False)
+except ImportError:
+    pass
+
+
+def _db_defaults() -> dict:
+    """从 DATABASE_URL 解析 host/port/user/password/db（解析不了就回退）。"""
+    import re
+    import urllib.parse as up
+
+    url = os.environ.get("DATABASE_URL", "")
+    m = re.match(r"mysql\+pymysql://([^@]+)@([^/]+)/([^?]+)", url)
+    if not m:
+        return {}
+    userinfo, hostport, db = m.groups()
+    user, _, password = userinfo.partition(":")
+    host, _, port = hostport.partition(":")
+    return {
+        "host": host or "127.0.0.1",
+        "port": int(port or 3306),
+        "user": up.unquote(user),
+        "password": up.unquote(password),
+        "db": up.unquote(db),
+    }
+
 WEEKDAY = ["一", "二", "三", "四", "五", "六", "日"]
 
 PACE = ["5'10\"", "5'25\"", "5'38\"", "5'52\"", "6'05\"", "6'20\""]
 
 
 def parse_args() -> argparse.Namespace:
+    d = _db_defaults()
     p = argparse.ArgumentParser(description="灌本地开发数据到 MySQL")
-    p.add_argument("--host", default=os.environ.get("MYSQL_HOST", "127.0.0.1"))
-    p.add_argument("--port", type=int, default=int(os.environ.get("MYSQL_PORT", "3306")))
-    p.add_argument("--user", default=os.environ.get("MYSQL_USER", "root"))
-    p.add_argument("--password", default=os.environ.get("MYSQL_PASSWORD", ""))
-    p.add_argument("--db", default=os.environ.get("MYSQL_DB", "garmin_coach"))
+    p.add_argument("--host", default=os.environ.get("MYSQL_HOST", d.get("host", "127.0.0.1")))
+    p.add_argument("--port", type=int, default=int(os.environ.get("MYSQL_PORT", d.get("port", 3306))))
+    p.add_argument("--user", default=os.environ.get("MYSQL_USER", d.get("user", "root")))
+    p.add_argument("--password", default=os.environ.get("MYSQL_PASSWORD", d.get("password", "")))
+    p.add_argument("--db", default=os.environ.get("MYSQL_DB", d.get("db", "garmin_coach")))
     p.add_argument("--users", type=int, default=20, help="造多少个用户")
     p.add_argument("--days", type=int, default=14, help="每人多少天健康数据")
     p.add_argument("--seed", type=int, default=42, help="随机种子（保证可复现）")
@@ -52,6 +82,18 @@ def parse_args() -> argparse.Namespace:
 def ensure_database(a: argparse.Namespace) -> None:
     """建库（不存在时）。表由 database.init_db() 建。"""
     import pymysql
+
+    # 库已经能连上就不用 CREATE（普通用户没有 CREATE DATABASE 权限）
+    try:
+        conn = pymysql.connect(
+            host=a.host, port=a.port, user=a.user, password=a.password,
+            database=a.db, charset="utf8mb4",
+        )
+        conn.close()
+        return
+    except pymysql.err.OperationalError as exc:
+        if exc.args and exc.args[0] != 1049:   # 1049 = Unknown database
+            raise
 
     conn = pymysql.connect(
         host=a.host, port=a.port, user=a.user, password=a.password, charset="utf8mb4"

@@ -1,7 +1,7 @@
 """上下文压缩（对齐 DSH 的 compaction-basic，简化版）。
 
 规则：
-- 触发：估算 token 超过 ``COMPACT_TRIGGER_TOKENS``（默认 30k）；
+- 触发：估算 token 超过 ``min(500k, 窗口 × 0.8)``（两者取小）；
 - 保留：最近 ``KEEP_MESSAGES`` 条（默认 5），并把切点对齐到 user 消息，
   避免切开 assistant(tool_calls) / tool 的配对；
 - 产物：一条带 ``<compact_boundary>`` 的 user 消息（摘要 + "__ 保留消息在它后面）；
@@ -15,8 +15,12 @@ from typing import Any, Awaitable, Callable
 BOUNDARY_OPEN = "<compact_boundary>"
 BOUNDARY_CLOSE = "</compact_boundary>"
 
-#: 超过多少 token 触发压缩（按预算定，不按模型窗口）
-COMPACT_TRIGGER_TOKENS = int(os.environ.get("COMPACT_TRIGGER_TOKENS", "30000"))
+#: 预算上限：超过它就压缩（再大就贵了，也没必要）
+COMPACT_TRIGGER_TOKENS = int(os.environ.get("COMPACT_TRIGGER_TOKENS", "500000"))
+#: 模型窗口（按实际部署填；默认 1M）
+COMPACT_CONTEXT_WINDOW = int(os.environ.get("COMPACT_CONTEXT_WINDOW", "1000000"))
+#: 不超过窗口的这个比例（防溢出）
+COMPACT_TRIGGER_RATIO = float(os.environ.get("COMPACT_TRIGGER_RATIO", "0.8"))
 #: 压缩后保留多少条最近消息
 KEEP_MESSAGES = int(os.environ.get("COMPACT_KEEP_MESSAGES", "5"))
 #: 至少多少条才值得压缩
@@ -36,6 +40,15 @@ COMPACT_PROMPT = """你是对话压缩器。把上面的对话浓缩成一份结
 - 中文，短句，条目化；
 - 保留精确数字、日期、指标名、用户明确纠正过的说法；
 - 不要提"这是压缩结果"，不要调用任何工具。"""
+
+
+def trigger_tokens() -> int:
+    """触发阈值：预算 500k 与「窗口 × 0.8」取小。
+
+    小窗口模型下按比例走，避免 500k 还没到就爆窗口；
+    大窗口模型下按预算走，避免一次请求几十万 token。
+    """
+    return int(min(COMPACT_TRIGGER_TOKENS, COMPACT_CONTEXT_WINDOW * COMPACT_TRIGGER_RATIO))
 
 
 def estimate_tokens(messages: list[dict[str, Any]]) -> int:
@@ -58,7 +71,7 @@ def plan_cut(messages: list[dict[str, Any]], keep: int = KEEP_MESSAGES) -> int |
     """
     if len(messages) <= max(MIN_MESSAGES, keep + 2):
         return None
-    if estimate_tokens(messages) < COMPACT_TRIGGER_TOKENS:
+    if estimate_tokens(messages) < trigger_tokens():
         return None
 
     cut = len(messages) - keep
