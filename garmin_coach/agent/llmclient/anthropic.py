@@ -17,6 +17,7 @@ from __future__ import annotations
 import json
 from typing import Any, AsyncIterator
 
+from .resilience import resilient_stream
 from .base import (
     AuthenticationError,
     LLMClient,
@@ -192,7 +193,7 @@ class AnthropicClient(LLMClient):
         self.model = config.model
         self._client = AsyncAnthropic(api_key=config.api_key, base_url=base_url or None)
 
-    async def stream(
+    async def _stream_once(
         self,
         messages: list[dict[str, Any]],
         *,
@@ -289,12 +290,27 @@ class AnthropicClient(LLMClient):
 
                 yield MessageStop(_STOP_MAP.get(final.stop_reason or "", final.stop_reason or "stop"), usage_dict)
 
-        except _anthropic.AuthenticationError as e:
-            yield StreamError(f"API key 无效：{e}")
-        except _anthropic.RateLimitError as e:
-            retry = e.response.headers.get("retry-after") if e.response else None
-            yield StreamError(f"被限流：请等 {retry}s" if retry else "被限流：请稍后重试")
-        except _anthropic.APIConnectionError as e:
-            yield StreamError(f"网络错误：{e.__class__.__name__}: {e}")
-        except _anthropic.APIStatusError as e:
-            yield StreamError(f"HTTP {e.status_code}: {e.message}")
+        except _anthropic.APIError:
+            # 交给 resilience 统一格式化 + 决定是否重试
+            raise
+
+    async def stream(
+        self,
+        messages: list[dict[str, Any]],
+        *,
+        system: str | None = None,
+        tools: list[dict[str, Any]] | None = None,
+        temperature: float = 0.7,
+        max_tokens: int = 4096,
+    ):
+        """对外入口：超时 / 首包前重试由 resilience 负责。"""
+        async for event in resilient_stream(
+            lambda: self._stream_once(
+                messages,
+                system=system,
+                tools=tools,
+                temperature=temperature,
+                max_tokens=max_tokens,
+            )
+        ):
+            yield event

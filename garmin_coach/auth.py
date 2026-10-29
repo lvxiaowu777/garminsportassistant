@@ -14,8 +14,9 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 # ── 配置 ──
 SECRET_KEY = os.environ.get("JWT_SECRET", "garmin-coach-dev-secret-key-change-in-prod")
 JWT_ALGORITHM = "HS256"
-# Token 不过期（2026-08-20 用户要求：登录一次长期有效）。如果以后要改回过期，
-# 在 create_token 里加回 "exp" 字段。
+# Token 有效期（天）。之前长期有效，2026-10-29 加回过期，默认 7 天；
+# 要改短/改长只动环境变量，不用改代码。
+JWT_EXPIRE_DAYS = int(os.environ.get("JWT_EXPIRE_DAYS", "7"))
 
 # ── 密码哈希 ──
 
@@ -41,10 +42,12 @@ def verify_password(password: str, stored: str) -> bool:
 # ── JWT ──
 
 def create_token(user_id: int) -> str:
-    """签发 JWT（不过期）。"""
+    """签发 JWT（默认 7 天过期，见 ``JWT_EXPIRE_DAYS``）。"""
+    now = dt.datetime.now(dt.timezone.utc)
     payload = {
         "user_id": user_id,
-        "iat": dt.datetime.now(dt.timezone.utc),
+        "iat": now,
+        "exp": now + dt.timedelta(days=JWT_EXPIRE_DAYS),
     }
     return jwt.encode(payload, SECRET_KEY, algorithm=JWT_ALGORITHM)
 

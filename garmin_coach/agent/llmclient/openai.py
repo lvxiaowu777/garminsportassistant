@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from typing import Any, AsyncIterator
 
+from .resilience import resilient_stream
 from .base import (
     AuthenticationError,
     LLMClient,
@@ -66,7 +67,7 @@ class OpenAIClient(LLMClient):
         self.model = config.model
         self._client = AsyncOpenAI(api_key=config.api_key, base_url=base_url or None)
 
-    async def stream(
+    async def _stream_once(
         self,
         messages: list[dict[str, Any]],
         *,
@@ -142,21 +143,9 @@ class OpenAIClient(LLMClient):
                         slot["args"] += fn.arguments
                         yield ToolUseDelta(call_id, fn.arguments)
 
-        except OpenAIAuthError as e:
-            yield StreamError(f"API key 无效：{e}")
-            return
-        except OpenAIRateLimitError as e:
-            yield StreamError(f"被限流：{e}")
-            return
-        except APIConnectionError as e:
-            yield StreamError(f"网络错误：{e.__class__.__name__}: {e}")
-            return
-        except APIStatusError as e:
-            yield StreamError(f"HTTP {e.status_code}: {e.message}")
-            return
-        except LLMError as e:
-            yield StreamError(str(e))
-            return
+        except (OpenAIAuthError, OpenAIRateLimitError, APIConnectionError, APIStatusError, LLMError):
+            # 交给 resilience 统一格式化 + 决定是否重试
+            raise
 
         for idx in sorted(pending):
             slot = pending[idx]
@@ -177,3 +166,25 @@ class OpenAIClient(LLMClient):
             yield ToolUseEnd(call_id, slot["name"], arguments)
 
         yield MessageStop(finish_reason or "stop", usage)
+
+    async def stream(
+        self,
+        messages: list[dict[str, Any]],
+        *,
+        system: str | None = None,
+        tools: list[dict[str, Any]] | None = None,
+        temperature: float = 0.7,
+        max_tokens: int = 4096,
+    ):
+        """对外入口：超时 / 首包前重试由 resilience 负责。"""
+        async for event in resilient_stream(
+            lambda: self._stream_once(
+                messages,
+                system=system,
+                tools=tools,
+                temperature=temperature,
+                max_tokens=max_tokens,
+            )
+        ):
+            yield event
+

@@ -102,6 +102,7 @@ class Agent:
         self._temperature = temperature
         self._max_tokens = max_tokens
         self._lock = asyncio.Lock()
+        self._memory_injected = False   # 长期记忆每个 Agent 只注入一次
         self.turns = 0
         self.last_active = time.time()
 
@@ -135,18 +136,23 @@ class Agent:
     # ── 注入 ──
 
     async def _build_injected(self) -> list[dict[str, Any]]:
-        """本轮上下文块：记忆 + 数据新鲜度。
+        """本轮上下文块：记忆（每个 Agent 一次）+ 数据新鲜度（每轮）。
 
-        这里是**唯一来源**。以后加 hook（比赛倒计时、临时提醒），也在这里
-        追加段落，而不是给调用方开一个覆盖口子。
+        记忆是长期事实，一分钟内不会变，重复注入只是浪费 token；
+        新鲜度会变（刚同步过），所以每轮都算。
+        以后加 hook（比赛倒计时、临时提醒）也在这里追加。
         """
         if self._memory is None:
             return []
-        try:
-            return await self._memory.build_injection()
-        except Exception as exc:  # noqa: BLE001 - 注入失败不能挡住对话
-            log.warning("injection failed: user=%s: %s", self.user_id, exc)
-            return []
+
+        blocks: list[dict[str, Any]] = []
+        if not self._memory_injected:
+            mem = self._memory.memory_blocks()
+            for block in mem:
+                self._conv.add_context(block.get("content") or "")
+            self._memory_injected = True
+        blocks.extend(await self._memory.freshness_blocks())
+        return blocks
 
     def _messages(self, injected: list[dict[str, Any]]) -> list[dict[str, Any]]:
         """历史消息 → 本轮上下文（user）→ 本轮用户消息 → 工具往返。
@@ -347,18 +353,29 @@ class Agent:
             # 否则下一步的 tool 消息找不到对应的 tool_calls（协议会 400）
             conv.add_assistant_tool_calls(text, pending_calls)
 
+            # 先把这一批工具调用告诉前端，再并发执行（模型常常一次要查好几个）
             for call_id, name, arguments in pending_calls:
                 log.info("tool call: %s(%s)", name, arguments)
                 yield ToolCallEvent(turn, call_id, name, arguments)
 
+            async def _run_tool(call_id: str, name: str, arguments: dict[str, Any]):
                 t_tool = time.perf_counter()
                 result = await self._registry.execute(name, arguments)
+                ms = int((time.perf_counter() - t_tool) * 1000)
+                return call_id, name, arguments, result, ms
+
+            executed = await asyncio.gather(
+                *[_run_tool(c, n, a) for c, n, a in pending_calls]
+            )
+
+            # gather 保序：结果仍按模型给出的顺序配对，tool_calls 不会错位
+            for call_id, name, arguments, result, ms in executed:
                 steps.append(
                     Step(
                         turn=turn,
                         kind="tool",
                         name=name,
-                        latency_ms=int((time.perf_counter() - t_tool) * 1000),
+                        latency_ms=ms,
                         is_error=result.is_error,
                         chars=len(result.content),
                     )

@@ -112,6 +112,16 @@ class ConversationManager:
             }
         )
 
+    def add_context(self, content: str) -> None:
+        """注入块（记忆）作为一条上下文消息**留在 CM 里**，后续轮次自然带上。
+
+        不落库：属于当天的运行时上下文，跨天/重建后由 Agent 重新注入。
+        """
+        text = (content or "").strip()
+        if not text:
+            return
+        self.messages.append({"role": "user", "content": text, "context": True})
+
     def add_tool_result(self, call_id: str, content: str, is_error: bool = False) -> None:
         """工具结果（不落库：属于这一轮的临时数据）。
 
