@@ -10,29 +10,40 @@
    设计令牌 —— 与 Android ui/theme/Theme.kt 保持一致
    ══════════════════════════════════════════════════════════════ */
 :root{
-  --bg:#0F172A;
-  --card:#1E293B;
-  --input:#334155;
+  --bg:#0B1120;
+  --bg-soft:#0F172A;
+  --card:#172033;
+  --card-2:#1E293B;
+  --input:#28344A;
   --accent:#8B5CF6;
   --accent-dim:#6D28D9;
-  --success:#22C55E;
-  --warning:#B45309;
-  --danger:#EF4444;
-  --text:#E2E8F0;
-  --muted:#94A3B8;
-  --border:#334155;
-  --radius:12px;
+  --accent-soft:rgba(139,92,246,.14);
+  --success:#34D399;
+  --warning:#F59E0B;
+  --danger:#F87171;
+  --text:#E8EDF7;
+  --muted:#8B9AB3;
+  --border:rgba(148,163,184,.16);
+  --radius:14px;
+  --radius-lg:20px;
+  --shadow:0 10px 30px rgba(2,6,23,.35);
+  --grad:linear-gradient(135deg,#8B5CF6 0%,#6366F1 55%,#22D3EE 130%);
 }
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 html,body{margin:0;padding:0}
 body{
-  background:var(--bg);color:var(--text);
+  background:
+    radial-gradient(1200px 500px at 50% -200px,rgba(139,92,246,.18),transparent 70%),
+    var(--bg);
+  color:var(--text);
   font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
   font-size:15px;line-height:1.5;
   min-height:100vh;
   padding-bottom:env(safe-area-inset-bottom);
+  overflow-x:hidden;
 }
 button{font-family:inherit;cursor:pointer;border:none;background:none;color:inherit}
+button:focus-visible,input:focus-visible,textarea:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 input,textarea{font-family:inherit;font-size:15px}
 [hidden]{display:none!important}
 
@@ -81,7 +92,7 @@ input,textarea{font-family:inherit;font-size:15px}
 .topbar-title{font-size:17px;font-weight:700;letter-spacing:.2px}
 .topbar-meta{font-size:11px;color:var(--muted)}
 .icon-btn{
-  width:36px;height:36px;border-radius:10px;display:flex;align-items:center;justify-content:center;
+  min-width:36px;height:36px;padding:0 8px;border-radius:10px;display:flex;align-items:center;justify-content:center;
   font-size:17px;background:var(--card);border:1px solid rgba(51,65,85,.7);
   transition:background .15s;
 }
@@ -90,13 +101,62 @@ input,textarea{font-family:inherit;font-size:15px}
 /* ═══════════ 主容器 ═══════════ */
 #main{max-width:720px;margin:0 auto;padding:16px 14px 96px}
 .tab-pane{display:none;flex-direction:column;gap:12px}
-.tab-pane.active{display:flex}
+.tab-pane.active{display:flex;animation:paneIn .22s ease-out}
+@keyframes paneIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+
+/* 今日页 hero */
+.hero{
+  position:relative;overflow:hidden;border-radius:var(--radius-lg);
+  padding:20px 18px;border:1px solid rgba(139,92,246,.28);
+  background:linear-gradient(150deg,rgba(139,92,246,.22),rgba(30,41,59,.6) 60%),var(--card);
+  box-shadow:var(--shadow);
+}
+.hero::after{
+  content:"";position:absolute;right:-40px;top:-60px;width:180px;height:180px;border-radius:50%;
+  background:radial-gradient(circle,rgba(34,211,238,.22),transparent 70%);
+}
+.hero-greet{font-size:12.5px;color:var(--muted);letter-spacing:.4px}
+.hero-title{font-size:26px;font-weight:800;letter-spacing:.3px;margin:4px 0 6px;line-height:1.2}
+.hero-title .hl{background:var(--grad);-webkit-background-clip:text;background-clip:text;color:transparent}
+.hero-sub{font-size:13px;color:var(--muted);max-width:92%}
+.hero-actions{display:flex;gap:8px;margin-top:16px;position:relative;z-index:1}
+.action-btn{
+  flex:1;min-width:0;display:flex;align-items:center;justify-content:center;gap:6px;
+  white-space:nowrap;
+  padding:11px 12px;border-radius:12px;font-size:13.5px;font-weight:600;
+  background:rgba(255,255,255,.06);border:1px solid rgba(148,163,184,.22);color:var(--text);
+  transition:transform .12s,background .15s,border-color .15s;
+}
+.action-btn:hover{background:rgba(255,255,255,.1);border-color:rgba(139,92,246,.5)}
+.action-btn:active{transform:scale(.98)}
+.action-btn.primary{background:var(--grad);border-color:transparent;color:#fff}
+
+/* 三列小指标 */
+.stat-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+.stat-card{
+  background:var(--card);border:1px solid var(--border);border-radius:var(--radius);
+  padding:11px 6px;text-align:center;box-shadow:var(--shadow);min-width:0;
+}
+.stat-card .k{font-size:11px;color:var(--muted);letter-spacing:.3px}
+.stat-card .v{font-size:19px;font-weight:800;margin-top:4px;font-variant-numeric:tabular-nums}
+.stat-card .u{font-size:10.5px;color:var(--muted);margin-left:2px;font-weight:500}
+
+.seg-title{display:flex;align-items:center;justify-content:space-between;margin:6px 2px -2px}
+.seg-title h3{font-size:13px;font-weight:700;margin:0;color:var(--text);letter-spacing:.3px}
+.seg-title span{font-size:11.5px;color:var(--muted)}
 
 /* ═══════════ 卡片 ═══════════ */
 .card{
-  background:var(--card);border-radius:var(--radius);
-  padding:16px;border:1px solid rgba(51,65,85,.55);
+  background:linear-gradient(180deg,var(--card-2),var(--card));
+  border-radius:var(--radius);
+  padding:16px;border:1px solid var(--border);
+  box-shadow:var(--shadow);
+  transition:transform .15s,border-color .15s;
 }
+.card.flat{box-shadow:none}
+.card.clickable{cursor:pointer}
+.card.clickable:hover{border-color:rgba(139,92,246,.45)}
+.card.clickable:active{transform:scale(.995)}
 .card-label{
   font-size:12px;color:var(--muted);letter-spacing:.5px;margin-bottom:10px;
   display:flex;align-items:center;gap:6px;
@@ -111,7 +171,7 @@ input,textarea{font-family:inherit;font-size:15px}
 .empty{padding:26px 12px;text-align:center;font-size:13px;color:var(--muted)}
 
 /* 安全档位 */
-.tier{border-radius:var(--radius);padding:16px;border:1px solid transparent}
+.tier{border-radius:var(--radius);padding:16px;border:1px solid transparent;box-shadow:var(--shadow)}
 .tier-REST    {background:#7F1D1D;color:#FCA5A5}
 .tier-EASY    {background:#78350F;color:#FCD34D}
 .tier-MODERATE{background:#1E3A5F;color:#93C5FD}
@@ -149,6 +209,12 @@ input,textarea{font-family:inherit;font-size:15px}
 .msg.user .bubble{
   background:var(--accent-dim);color:#fff;border-bottom-right-radius:4px;
 }
+.bubble strong{color:#fff;font-weight:700}
+.bubble ul,.bubble ol{margin:6px 0;padding-left:18px}
+.bubble li{margin:2px 0}
+.bubble h4{margin:8px 0 4px;font-size:14px;color:#fff}
+.bubble code{background:rgba(148,163,184,.16);padding:1px 5px;border-radius:5px;font-size:13px}
+.bubble .md-gap{height:8px}
 .bubble.error{
   background:transparent;border:1px dashed rgba(148,163,184,.5);
   color:var(--muted);font-size:12.5px;
@@ -176,7 +242,7 @@ input,textarea{font-family:inherit;font-size:15px}
 .typing i:nth-child(2){animation-delay:.2s}
 .typing i:nth-child(3){animation-delay:.4s}
 @keyframes blink{0%,60%,100%{opacity:.25}30%{opacity:1}}
-.quick-row{display:flex;gap:8px;overflow-x:auto;padding:2px 0 10px;scrollbar-width:none}
+.quick-row{display:flex;gap:8px;overflow-x:auto;padding:2px 0 10px;scrollbar-width:none;mask-image:linear-gradient(90deg,transparent,#000 14px,#000 calc(100% - 14px),transparent)}
 .quick-row::-webkit-scrollbar{display:none}
 .quick{
   flex-shrink:0;padding:8px 14px;border-radius:999px;font-size:13px;
@@ -185,8 +251,9 @@ input,textarea{font-family:inherit;font-size:15px}
 }
 .quick:hover{border-color:var(--accent);background:var(--input)}
 .chat-input-bar{
-  position:sticky;bottom:64px;background:var(--bg);
-  padding:8px 0 4px;display:flex;gap:8px;align-items:flex-end;
+  position:sticky;bottom:64px;
+  background:linear-gradient(180deg,transparent,var(--bg) 26%);
+  padding:10px 0 6px;display:flex;gap:8px;align-items:flex-end;
 }
 .chat-input-bar textarea{
   flex:1;resize:none;max-height:120px;padding:12px 14px;border-radius:12px;
@@ -263,7 +330,16 @@ input,textarea{font-family:inherit;font-size:15px}
   font-size:11px;color:var(--muted);transition:color .15s;
 }
 .tabbar button .ico{font-size:19px;line-height:1}
+.tabbar button{position:relative}
+.tabbar button::before{
+  content:"";position:absolute;top:4px;left:50%;transform:translateX(-50%);
+  width:46px;height:30px;border-radius:10px;background:transparent;transition:background .18s;
+}
 .tabbar button.active{color:var(--accent)}
+.tabbar button.active::before{background:var(--accent-soft)}
+.tabbar button.active .ico{transform:translateY(-1px) scale(1.06)}
+.tabbar button .ico{transition:transform .18s;position:relative;z-index:1}
+.tabbar button>span:last-child{position:relative;z-index:1}
 
 /* 骨架屏 */
 .skeleton{
@@ -364,7 +440,7 @@ input,textarea{font-family:inherit;font-size:15px}
     </div>
     <div style="display:flex;gap:8px">
       <button class="icon-btn" id="refreshBtn" title="刷新">⟳</button>
-      <button class="icon-btn" id="logoutBtn" title="退出">⎋</button>
+      <button class="icon-btn" id="logoutBtn" title="退出登录">退出</button>
     </div>
   </header>
 
@@ -398,7 +474,7 @@ input,textarea{font-family:inherit;font-size:15px}
   </main>
 
   <nav class="tabbar">
-    <button data-tab="dashboard" class="active"><span class="ico">📊</span>仪表盘</button>
+    <button data-tab="dashboard" class="active"><span class="ico">☀️</span>今日</button>
     <button data-tab="chat"><span class="ico">💬</span>对话</button>
     <button data-tab="history"><span class="ico">📋</span>记录</button>
     <button data-tab="me"><span class="ico">👤</span>我的</button>
@@ -620,13 +696,71 @@ function renderDashboard(d) {
   const safety = d.safety || {};
   const recent = d.recent_7d || {};
   const charts = d.charts || {};
+  const tier = safety.max_tier || 'LONG';
   const hasData = Object.keys(today).length > 0;
   const parts = [];
 
-  // ── 1 天气与跑步窗口 ──
+  // ── Hero：今天能练多狠 + 快捷动作 ──
+  const greet = ({ '早晨': '早上好', '上午': '上午好', '下午': '下午好', '傍晚': '傍晚好', '夜晚': '晚上好', '深夜': '夜深了' })[d.period] || '你好';
+  parts.push(`<div class="hero">
+    <div class="hero-greet">${greet} · ${esc((d.datetime || '').slice(0, 10))}</div>
+    <div class="hero-title">今天适合 <span class="hl">${esc(TIER_LABEL[tier] || tier)}</span></div>
+    <div class="hero-sub">${esc(safety.tier_description || '还没有评估结果')}</div>
+    <div class="hero-actions">
+      <button class="action-btn primary" data-act="chat">💬 问教练</button>
+      <button class="action-btn" data-act="timer">🏋️ 力量计时</button>
+    </div>
+  </div>`);
+
+  // ── 三个核心指标（今天没同步就显示最近一次）──
+  const lastPoint = arr => {
+    if (!Array.isArray(arr)) return null;
+    for (let i = arr.length - 1; i >= 0; i--) if (arr[i].value != null) return arr[i];
+    return null;
+  };
+  const hrvLast = lastPoint(charts.hrv_trend);
+  const rhrLast = lastPoint(charts.rhr_trend);
+  const hrvVal = today.hrv != null ? today.hrv : (hrvLast ? hrvLast.value : null);
+  const rhrVal = today.resting_hr != null ? today.resting_hr : (rhrLast ? rhrLast.value : null);
+  const hrvHint = today.hrv == null && hrvVal != null ? ' · 最近' : '';
+  const rhrHint = today.resting_hr == null && rhrVal != null ? ' · 最近' : '';
+  parts.push(`<div class="stat-grid">
+    <div class="stat-card"><div class="k">HRV${hrvHint}</div><div class="v">${hrvVal != null ? esc(hrvVal) : '—'}<span class="u">ms</span></div></div>
+    <div class="stat-card"><div class="k">静息心率${rhrHint}</div><div class="v">${rhrVal != null ? esc(rhrVal) : '—'}<span class="u">bpm</span></div></div>
+    <div class="stat-card"><div class="k">身体电量</div><div class="v">${(today.body_battery_now != null ? today.body_battery_now : today.body_battery_high) ?? '—'}<span class="u">/100</span></div></div>
+  </div>`);
+
+  // ── 安全档位（详细原因）──
+  if ((safety.blockers || []).length || (safety.notes || []).length) {
+    parts.push(`<div class="tier ${TIER_CLASS[tier] || 'tier-LONG'}">
+      <div class="card-label" style="color:inherit;opacity:.75;margin-bottom:6px">🛡️ 为什么是这个档位</div>
+      ${(safety.blockers||[]).map(b=>`<div class="tier-list" style="margin:0">⚠️ ${esc(b)}</div>`).join('')}
+      ${(safety.notes||[]).map(n=>`<div class="tier-list" style="margin:0">💡 ${esc(n)}</div>`).join('')}
+    </div>`);
+  }
+
+  // ── 睡眠 + 步数 ──
+  parts.push(`<div class="row2">
+    <div class="card">
+      <div class="card-label">💤 昨夜睡眠</div>
+      ${today.sleep_hours != null ? `
+        <div><span class="big">${esc(today.sleep_hours)}</span><span class="unit">小时</span></div>
+        <div style="display:flex;gap:12px;margin-top:8px;font-size:12px;color:var(--muted);flex-wrap:wrap">
+          ${today.sleep_score != null ? `<span>得分 <b style="color:var(--text)">${esc(today.sleep_score)}</b></span>` : ''}
+          ${today.sleep_deep_min != null ? `<span>深睡 <b style="color:var(--text)">${esc(today.sleep_deep_min)}</b>m</span>` : ''}
+        </div>` : `<div class="empty">暂无数据</div>`}
+    </div>
+    <div class="card">
+      <div class="card-label">👣 今日步数</div>
+      <div><span class="big">${today.steps != null ? Number(today.steps).toLocaleString() : '—'}</span><span class="unit">步</span></div>
+      ${today.vo2max != null ? `<div style="margin-top:8px;font-size:12px;color:var(--muted)">VO₂Max <b style="color:var(--text)">${esc(today.vo2max)}</b></div>` : ''}
+    </div>
+  </div>`);
+
+  // ── 天气 ──
   const hasWeather = today.weather_desc || today.now_temp != null;
   parts.push(`<div class="card">
-    <div class="card-label">🌤️ 天气与跑步窗口</div>
+    <div class="card-label">🌤️ 天气 · 跑步窗口</div>
     ${hasWeather ? `
       <div class="weather-top">
         <div>
@@ -646,94 +780,38 @@ function renderDashboard(d) {
       </div>` : `<div class="empty">今日天气未同步</div>`}
   </div>`);
 
-  // ── 2 安全档位 ──
-  const tier = safety.max_tier || 'LONG';
-  parts.push(`<div class="tier ${TIER_CLASS[tier] || 'tier-LONG'}">
-    <div class="card-label" style="color:inherit;opacity:.75;margin-bottom:6px">🛡️ 安全档位</div>
-    <div class="tier-name">${esc(tier)} · ${esc(TIER_LABEL[tier] || '')}</div>
-    <div class="tier-desc">${esc(safety.tier_description || '')}</div>
-    ${(safety.blockers||[]).length ? `<ul class="tier-list">${safety.blockers.map(b=>`<li>⚠️ ${esc(b)}</li>`).join('')}</ul>` : ''}
-    ${(safety.notes||[]).length ? `<ul class="tier-list">${safety.notes.map(n=>`<li>💡 ${esc(n)}</li>`).join('')}</ul>` : ''}
-  </div>`);
-
-  // ── 3 HRV + 静息心率 ──
-  parts.push(`<div class="row2">
-    <div class="card">
-      <div class="card-label">🫀 HRV</div>
-      <div><span class="big">${today.hrv != null ? esc(today.hrv) : '—'}</span><span class="unit">毫秒</span></div>
-      ${today.hrv_status ? `<div style="font-size:12.5px;color:var(--muted);margin-top:6px">${esc(hrvStatusLabel(today.hrv_status))}</div>` : ''}
-    </div>
-    <div class="card">
-      <div class="card-label">❤️ 静息心率</div>
-      <div><span class="big">${today.resting_hr != null ? esc(today.resting_hr) : '—'}</span><span class="unit">bpm</span></div>
-    </div>
-  </div>`);
-
-  // ── 4 身体电量 + 今日步数 ──
-  const bb = today.body_battery_now != null ? today.body_battery_now : today.body_battery_high;
-  parts.push(`<div class="row2">
-    <div class="card">
-      <div class="card-label">🔋 身体电量</div>
-      <div><span class="big">${bb != null ? esc(bb) : '—'}</span><span class="unit">/100</span></div>
-    </div>
-    <div class="card">
-      <div class="card-label">👣 今日步数</div>
-      <div><span class="big">${today.steps != null ? Number(today.steps).toLocaleString() : '—'}</span><span class="unit">步</span></div>
-    </div>
-  </div>`);
-
-  // ── 5 昨夜睡眠 ──
+  // ── 趋势 ──
   parts.push(`<div class="card">
-    <div class="card-label">💤 昨夜睡眠</div>
-    ${today.sleep_hours != null ? `
-      <div><span class="big">${esc(today.sleep_hours)}</span><span class="unit">小时</span></div>
-      <div style="display:flex;gap:16px;margin-top:10px;font-size:12.5px;color:var(--muted);flex-wrap:wrap">
-        ${today.sleep_score != null ? `<span>得分 <b style="color:var(--text)">${esc(today.sleep_score)}</b></span>` : ''}
-        ${today.sleep_deep_min != null ? `<span>深睡 <b style="color:var(--text)">${esc(today.sleep_deep_min)}</b> 分钟</span>` : ''}
-        ${today.sleep_rem_min != null ? `<span>REM <b style="color:var(--text)">${esc(today.sleep_rem_min)}</b> 分钟</span>` : ''}
-      </div>` : `<div class="empty">暂无睡眠数据</div>`}
-  </div>`);
-
-  // ── 6 7 天趋势 ──
-  parts.push(`<div class="card">
-    <div class="card-label">📈 7 天趋势</div>
-    <div class="legend">
+    <div class="seg-title"><h3>📈 7 天趋势</h3><span>HRV / 静息心率</span></div>
+    <div class="legend" style="margin-top:10px">
       <span><i style="background:var(--accent)"></i>HRV</span>
       <span><i style="background:var(--success)"></i>静息心率</span>
     </div>
     <div class="chart-wrap"><canvas id="trendChart"></canvas></div>
   </div>`);
 
-  // ── 7 本周摘要 ──
+  // ── 本周 ──
   parts.push(`<div class="card">
-    <div class="card-label">📅 本周摘要</div>
-    <div class="stat-line"><span>跑量</span><span>${recent.total_distance_km != null ? esc(recent.total_distance_km)+' km' : '—'}</span></div>
-    <div class="stat-line"><span>跑步次数</span><span>${recent.run_count != null ? esc(recent.run_count)+' 次' : '—'}</span></div>
-    <div class="stat-line"><span>平均 HRV</span><span>${recent.avg_hrv != null ? esc(recent.avg_hrv) : '—'}</span></div>
-    <div class="stat-line"><span>平均静息心率</span><span>${recent.avg_resting_hr != null ? esc(recent.avg_resting_hr)+' bpm' : '—'}</span></div>
-    <div class="stat-line"><span>平均睡眠</span><span>${recent.avg_sleep_h != null ? esc(recent.avg_sleep_h)+' h' : '—'}</span></div>
+    <div class="seg-title"><h3>📅 本周</h3><span>${recent.run_count != null ? recent.run_count + ' 次跑步' : ''}</span></div>
+    <div style="margin-top:8px">
+      <div class="stat-line"><span>跑量</span><span>${recent.total_distance_km != null ? esc(recent.total_distance_km)+' km' : '—'}</span></div>
+      <div class="stat-line"><span>平均 HRV</span><span>${recent.avg_hrv != null ? esc(recent.avg_hrv) : '—'}</span></div>
+      <div class="stat-line"><span>平均静息心率</span><span>${recent.avg_resting_hr != null ? esc(recent.avg_resting_hr)+' bpm' : '—'}</span></div>
+      <div class="stat-line"><span>平均睡眠</span><span>${recent.avg_sleep_h != null ? esc(recent.avg_sleep_h)+' h' : '—'}</span></div>
+    </div>
   </div>`);
 
-  // ── 8 心肺与负荷 ──
-  parts.push(`<div class="card">
-    <div class="card-label">🫁 心肺 · 负荷</div>
-    <div class="stat-line"><span>VO₂Max</span><span>${today.vo2max != null ? esc(today.vo2max) : '—'}</span></div>
-    <div class="stat-line"><span>训练状态</span><span>${esc(today.training_status || '—')}</span></div>
-    <div class="stat-line"><span>ACWR</span><span>${today.acwr_ratio != null ? esc(today.acwr_ratio) : '—'}</span></div>
-    <div class="stat-line"><span>健身年龄</span><span>${today.fitness_age != null ? esc(today.fitness_age) : '—'}</span></div>
-  </div>`);
-
-  // ── 9 比赛预测 ──
-  const races = [
-    ['5K', today.race_5k], ['10K', today.race_10k],
-    ['半马', today.race_half], ['全马', today.race_full],
-  ].filter(([, v]) => v);
-  parts.push(`<div class="card">
-    <div class="card-label">🏁 比赛预测</div>
-    ${races.length
-      ? `<div class="row2" style="gap:8px">${races.map(([k,v])=>`<div style="background:var(--input);border-radius:10px;padding:10px 12px"><div style="font-size:11px;color:var(--muted)">${k}</div><div style="font-size:17px;font-weight:700;margin-top:2px">${esc(v)}</div></div>`).join('')}</div>`
-      : `<div class="empty">暂无预测数据</div>`}
-  </div>`);
+  // ── 负荷 + 比赛 ──
+  const races = [['5K', today.race_5k], ['10K', today.race_10k], ['半马', today.race_half], ['全马', today.race_full]]
+    .filter(([, v]) => v);
+  if (races.length || today.training_status || today.acwr_ratio != null) {
+    parts.push(`<div class="card">
+      <div class="seg-title"><h3>🫁 负荷 · 预测</h3><span>${esc(today.training_status || '')}</span></div>
+      <div class="stat-line"><span>ACWR</span><span>${today.acwr_ratio != null ? esc(today.acwr_ratio) : '—'}</span></div>
+      <div class="stat-line"><span>健身年龄</span><span>${today.fitness_age != null ? esc(today.fitness_age) : '—'}</span></div>
+      ${races.length ? `<div class="row2" style="gap:8px;margin-top:10px">${races.map(([k,v])=>`<div style="background:var(--input);border-radius:10px;padding:10px 12px"><div style="font-size:11px;color:var(--muted)">${k}</div><div style="font-size:17px;font-weight:700;margin-top:2px">${esc(v)}</div></div>`).join('')}</div>` : ''}
+    </div>`);
+  }
 
   if (!hasData) {
     parts.unshift(`<div class="card"><div class="empty">还没有今天的健康数据<br><span style="font-size:12px">在 App 里绑定时手表并同步，或点右上角刷新</span></div></div>`);
@@ -741,6 +819,15 @@ function renderDashboard(d) {
 
   $('#dashContent').innerHTML = parts.join('');
   drawTrend(charts);
+
+  // hero 快捷动作
+  $$('#dashContent [data-act]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      switchTab('chat');
+      if (btn.dataset.act === 'timer') startTrainTimer();
+      else setTimeout(() => $('#chatInput')?.focus(), 150);
+    });
+  });
 }
 
 /**
@@ -824,8 +911,15 @@ function drawTrend(charts) {
   ctx.fillStyle = '#94A3B8';
   const step = Math.max(1, Math.ceil(labels.length / 5));
   labels.forEach((d, i) => {
-    if (i % step !== 0 && i !== labels.length - 1) return;
-    ctx.fillText(d, px(i), cssH - 8);
+    const isLast = i === labels.length - 1;
+    if (i % step !== 0 && !isLast) return;
+    if (isLast) {
+      ctx.textAlign = 'right';
+      ctx.fillText(d, padL + W, cssH - 8);
+      ctx.textAlign = 'center';
+    } else {
+      ctx.fillText(d, px(i), cssH - 8);
+    }
   });
 
   // 折线与数据点（遇到 null 就断开，不连到下一个有效点）
@@ -910,6 +1004,36 @@ function stepsHtml(m, idx) {
   </div>`;
 }
 
+/** 极简 Markdown：加粗 / 列表 / 行内代码 / 空行分段（够聊天用，零依赖） */
+function mdLite(text) {
+  const lines = esc(text || '').split('\n');
+  const out = [];
+  let inList = false;
+
+  const inline = s => s
+    .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+    .replace(/`([^`]+)`/g, '<code>$1</code>');
+
+  const closeList = () => { if (inList) { out.push('</ul>'); inList = false; } };
+
+  for (const raw of lines) {
+    const line = raw.trimEnd();
+    const bullet = line.match(/^\s*[-•]\s+(.*)$/);
+    const heading = line.match(/^#{2,4}\s+(.*)$/);
+    if (bullet) {
+      if (!inList) { out.push('<ul>'); inList = true; }
+      out.push(`<li>${inline(bullet[1])}</li>`);
+      continue;
+    }
+    closeList();
+    if (heading) { out.push(`<h4>${inline(heading[1])}</h4>`); continue; }
+    if (!line.trim()) { out.push('<div class="md-gap"></div>'); continue; }
+    out.push(`<div>${inline(line)}</div>`);
+  }
+  closeList();
+  return out.join('');
+}
+
 function msgHtml(m, idx) {
   const isUser = m.role === 'user';
   const time = m.created_at ? `<div class="msg-time">${esc(fmtTime(m.created_at))}</div>` : '';
@@ -925,7 +1049,7 @@ function msgHtml(m, idx) {
   } else if (m.type === 'error') {
     body = `⚠️ ${esc(m.content || '回复中断')}`;
   } else {
-    body = esc(m.content || '');
+    body = isUser ? esc(m.content || '') : mdLite(m.content || '');
   }
   const bubbleClass = m.type === 'error' ? 'bubble error' : 'bubble';
   const steps = isUser ? '' : stepsHtml(m, idx);
@@ -1846,6 +1970,9 @@ async function syncAll() {
   try {
     await api('/api/auth/me');
     enterApp();
+    // 支持 /#chat、/#history、/#me 这类深链
+    const hash = (location.hash || '').replace('#', '');
+    if (['chat', 'history', 'me', 'dashboard'].includes(hash)) switchTab(hash);
   } catch {
     logout();
   }
