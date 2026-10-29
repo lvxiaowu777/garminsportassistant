@@ -33,8 +33,10 @@ class ForgetMemoryParams(BaseModel):
 class UpdateMemoryTool(Tool):
     name = "update_memory"
     description = (
-        "更新/新增一条长期记忆（用户纠正事实、补充偏好、确认目标时用）。\n"
-        "只在用户明确说了新事实时调用；不要把猜测写进记忆。\n"
+        "更新/新增一条长期记忆。\n"
+        "**用户说「记住 / 以后 / 别让我 / 我更喜欢」时必须调用**；\n"
+        "用户纠正旧事实（「没报上」「改了」）时也调用。\n"
+        "不要把猜测写进记忆；没调用就不要说「记住了」。\n"
         "kind 只能是：injury / goal / preference / constraint / plan_decision。"
     )
     params_model = UpdateMemoryParams
