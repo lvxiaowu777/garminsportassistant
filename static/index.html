@@ -423,7 +423,9 @@ input,textarea{font-family:inherit;font-size:15px}
       </div>
       <button class="btn-primary" id="authSubmit" type="submit">登录</button>
     </form>
-    <div class="auth-switch">
+    <button class="btn-ghost" id="guestBtn" style="width:100%;margin-top:10px">👀 游客体验</button>
+    <div class="auth-hint" id="guestHint" style="font-size:11.5px;color:var(--muted);text-align:center;margin-top:6px"></div>
+    <div class="auth-switch" id="authSwitchRow">
       <span id="authSwitchText">还没有账号？</span>
       <a id="authSwitch">注册</a>
     </div>
@@ -581,6 +583,53 @@ function switchAuthMode() {
 }
 
 $('#authSwitch').addEventListener('click', switchAuthMode);
+
+/* ── 游客体验 + 演示站开关 ── */
+const AUTH_FLAGS = { register: true, guest: true, daily: 30 };
+
+function applyAuthFlags() {
+  if (!AUTH_FLAGS.register) {
+    $('#authSwitchRow').hidden = true;
+    state.isRegister = false;
+    $('#authSubmit').textContent = '登录';
+  }
+  if (!AUTH_FLAGS.guest) {
+    $('#guestBtn').hidden = true;
+    $('#guestHint').hidden = true;
+  } else {
+    $('#guestHint').textContent = `游客模式：共用一个演示账号，每天 ${AUTH_FLAGS.daily} 条`;
+  }
+}
+
+(async function loadAuthFlags() {
+  try {
+    const info = await api('/api/system/info', { auth: false });
+    AUTH_FLAGS.register = info.register_enabled !== false;
+    AUTH_FLAGS.guest = info.demo_login_enabled !== false;
+    AUTH_FLAGS.daily = info.demo_daily_messages || 30;
+  } catch { /* 读不到就按默认显示 */ }
+  applyAuthFlags();
+})();
+
+$('#guestBtn').addEventListener('click', async () => {
+  const btn = $('#guestBtn');
+  btn.disabled = true;
+  btn.textContent = '进入中…';
+  try {
+    const data = await api('/api/auth/guest', { method: 'POST', body: {}, auth: false });
+    if (!data || !data.token) throw new Error('服务端未返回 token');
+    state.token = data.token;
+    state.userId = data.user_id;
+    localStorage.setItem(LS_TOKEN, data.token);
+    localStorage.setItem(LS_USER, String(data.user_id));
+    enterApp();
+  } catch (err) {
+    showAuthError(err.message || '游客入口暂不可用');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '👀 游客体验';
+  }
+});
 
 $('#authForm').addEventListener('submit', async (e) => {
   e.preventDefault();

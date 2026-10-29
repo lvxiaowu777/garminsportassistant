@@ -36,7 +36,16 @@ if sys.platform == "win32":
     except Exception:
         pass
 
-app = FastAPI(title="Garmin Coach", version="1.0.0")
+from .settings import settings
+
+# 演示站可以关掉 /docs 和 /openapi.json（不把接口清单送给扫描脚本）
+app = FastAPI(
+    title="Garmin Coach",
+    version="1.0.0",
+    docs_url="/docs" if settings.docs_enabled else None,
+    redoc_url="/redoc" if settings.docs_enabled else None,
+    openapi_url="/openapi.json" if settings.docs_enabled else None,
+)
 
 
 @app.exception_handler(AppError)
@@ -126,7 +135,13 @@ def main() -> None:
     start_scheduler()
 
     print("🚀 启动 Garmin Coach 服务: http://localhost:8766")
-    uvicorn.run(app, host="0.0.0.0", port=8766, log_level="info")
+    uvicorn.run(
+        app,
+        host="0.0.0.0",
+        port=8766,
+        log_level="info",
+        proxy_headers=True,   # 反向代理后拿真实 IP（限流要用）
+    )
 
 
 if __name__ == "__main__":

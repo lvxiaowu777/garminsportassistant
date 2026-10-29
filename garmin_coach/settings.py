@@ -63,6 +63,16 @@ class Settings:
     agent_max_turns: int = 8               # 一轮对话最多几次「模型 ↔ 工具」
     agent_temperature: float = 0.7
 
+    # ── 演示站保护 ──
+    register_enabled: bool = True          # 是否开放自主注册（REGISTER_ENABLED）
+    demo_login_enabled: bool = True        # 是否允许游客体验（DEMO_LOGIN_ENABLED）
+    demo_user_id: int = 1001               # 游客体验用的演示账号（DEMO_USER_ID）
+    demo_daily_messages: int = 30          # 每个访客每天最多几条（DEMO_DAILY_MESSAGES）
+    demo_per_minute: int = 6               # 每分钟最多几条（DEMO_PER_MINUTE）
+    demo_global_daily: int = 300           # 全站每天最多几条（DEMO_GLOBAL_DAILY）
+    max_message_chars: int = 2000          # 单条消息最大长度（MAX_MESSAGE_CHARS）
+    docs_enabled: bool = True              # 是否暴露 /docs（API_DOCS_ENABLED）
+
     # ── 同步 ──
     sync_days_default: int = 2             # 日常同步拉几天（首次绑表才 backfill）
     sync_fresh_ttl_minutes: int = 10       # 对话前：数据比这个旧就先同步一次
@@ -78,6 +88,17 @@ def load_settings() -> Settings:
         session_reap_interval_seconds=_int("SESSION_REAP_INTERVAL_SECONDS", 300),
         agent_max_turns=_int("AGENT_MAX_TURNS", 8),
         agent_temperature=_float("AGENT_TEMPERATURE", 0.7),
+        register_enabled=os.environ.get("REGISTER_ENABLED", "1").strip()
+        not in ("0", "false", "False"),
+        demo_login_enabled=os.environ.get("DEMO_LOGIN_ENABLED", "1").strip()
+        not in ("0", "false", "False"),
+        demo_user_id=_int("DEMO_USER_ID", 1001),
+        demo_daily_messages=_int("DEMO_DAILY_MESSAGES", 30),
+        demo_per_minute=_int("DEMO_PER_MINUTE", 6),
+        demo_global_daily=_int("DEMO_GLOBAL_DAILY", 300),
+        max_message_chars=_int("MAX_MESSAGE_CHARS", 2000),
+        docs_enabled=os.environ.get("API_DOCS_ENABLED", "1").strip()
+        not in ("0", "false", "False"),
         sync_days_default=_int("SYNC_DAYS_DEFAULT", 2),
         sync_fresh_ttl_minutes=_int("SYNC_FRESH_TTL_MINUTES", 10),
         sync_fresh_timeout_seconds=_int("SYNC_FRESH_TIMEOUT_SECONDS", 25),

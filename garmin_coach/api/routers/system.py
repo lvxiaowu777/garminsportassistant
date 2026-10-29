@@ -17,6 +17,19 @@ async def root():
     return FileResponse(STATIC_DIR / "index.html")
 
 
+@router.get("/api/system/info")
+async def api_info():
+    """前端启动时读：哪些入口开放（注册/游客/文档）。"""
+    from garmin_coach.settings import settings
+
+    return {
+        "register_enabled": settings.register_enabled,
+        "demo_login_enabled": settings.demo_login_enabled,
+        "demo_daily_messages": settings.demo_daily_messages,
+        "docs_enabled": settings.docs_enabled,
+    }
+
+
 @router.get("/api/llm/providers")
 async def api_providers():
     """列出可用的 LLM 提供商（数据源和 Agent 用的是同一份配置）。"""

@@ -15,7 +15,7 @@ import datetime as dt
 import json
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import StreamingResponse
 
 from ..deps import AUDIO_DIR, log, require_user
@@ -27,7 +27,14 @@ from garmin_coach.db.database import (
     get_chat_dates,
     get_chat_history,
 )
+def _client_ip(request: Request) -> str:
+    """真实客户端 IP（反向代理后要靠 uvicorn proxy_headers）。"""
+    return getattr(request.client, "host", "") or "unknown"
+
+
 from garmin_coach.services.asr import asr_transcribe
+from garmin_coach.services.quota import check_demo_chat, check_message
+from garmin_coach.settings import settings
 
 router = APIRouter(tags=["chat"])
 
@@ -81,6 +88,7 @@ async def api_chat_voice(
     file: UploadFile = File(...),
     duration_sec: int = Form(0),
     user_id: int = Depends(require_user),
+    request: Request = None,  # type: ignore[assignment]
 ):
     """语音消息：存音频 → ASR → 同一个 Agent 回答。
 
@@ -88,6 +96,9 @@ async def api_chat_voice(
     所以这里把语音元数据交给 Agent，由 CM 落库时一起写（msg_type / audio_url / duration_sec）。
     """
     from garmin_coach.agent import get_agent
+
+    if user_id == settings.demo_user_id and request is not None:
+        check_demo_chat(_client_ip(request))
 
     audio_bytes = await file.read()
 
@@ -133,7 +144,11 @@ async def api_chat_voice(
 # ── 文字（流式 SSE）──
 
 @router.post("/api/chat/stream")
-async def api_chat_stream(req: ChatRequest, user_id: int = Depends(require_user)):
+async def api_chat_stream(
+    req: ChatRequest,
+    request: Request,
+    user_id: int = Depends(require_user),
+):
     """流式对话（SSE，第二跳）。
 
     转发的是 **Agent 层事件**（text / thinking / tool_call / tool_result / done / error），
@@ -143,6 +158,10 @@ async def api_chat_stream(req: ChatRequest, user_id: int = Depends(require_user)
     前端用 ``fetch`` + ``response.body.getReader()`` 消费。
     """
     from garmin_coach.agent import get_agent
+
+    check_message(req.message)
+    if user_id == settings.demo_user_id:
+        check_demo_chat(_client_ip(request))
 
     async def gen():
         try:

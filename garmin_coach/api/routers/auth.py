@@ -8,13 +8,16 @@ from ..schemas import LoginRequest, RegisterRequest
 
 from garmin_coach.auth import create_token, hash_password, verify_password
 from garmin_coach.db.database import create_user, get_user_by_phone, get_user_profile
+from garmin_coach.settings import settings
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
 
 @router.post("/register")
 async def api_register(req: RegisterRequest):
-    """手机号注册。"""
+    """手机号注册（演示站可通过 REGISTER_ENABLED=0 关闭）。"""
+    if not settings.register_enabled:
+        raise HTTPException(403, "演示站不开放注册，请用「游客体验」或联系我拿账号")
     phone = req.phone.strip()
     if not phone or len(phone) < 11:
         raise HTTPException(400, "请输入正确的手机号")
@@ -47,6 +50,24 @@ async def api_login(req: LoginRequest):
 
     token = create_token(user["id"])
     return {"ok": True, "user_id": user["id"], "token": token}
+
+
+@router.post("/guest")
+async def api_guest():
+    """游客体验：登录内置演示账号（受每 IP 配额限制）。"""
+    if not settings.demo_login_enabled:
+        raise HTTPException(403, "演示入口已关闭")
+    profile = get_user_profile(settings.demo_user_id)
+    if not profile:
+        raise HTTPException(503, "演示账号还没初始化，请联系站长")
+    token = create_token(settings.demo_user_id)
+    return {
+        "ok": True,
+        "user_id": settings.demo_user_id,
+        "token": token,
+        "demo": True,
+        "daily_limit": settings.demo_daily_messages,
+    }
 
 
 @router.get("/me")
