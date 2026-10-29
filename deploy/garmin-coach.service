@@ -1,0 +1,22 @@
+[Unit]
+Description=Garmin Coach (FastAPI + Agent)
+After=network.target mysql.service
+Wants=mysql.service
+
+[Service]
+Type=simple
+User=ubuntu
+Group=ubuntu
+WorkingDirectory=/home/ubuntu/garmin-coach
+EnvironmentFile=/home/ubuntu/garmin-coach/.env
+ExecStart=/home/ubuntu/garmin-coach/venv/bin/python -m garmin_coach.server
+Restart=always
+RestartSec=3
+StandardOutput=append:/home/ubuntu/garmin-coach/logs/stdout.log
+StandardError=append:/home/ubuntu/garmin-coach/logs/stderr.log
+
+# 单进程：AgentPool / 配额 / APScheduler 都在进程内，不能多 worker
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=multi-user.target
