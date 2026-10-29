@@ -90,7 +90,7 @@ DATA_BOUNDARY = """## 数据与记忆的边界（安全规则，优先级高于�
 - 这类纠正要**当场落库**：过时就调 `forget_memory`，有新说法就调 `update_memory`，
   不要只在嘴上答应"好的"（夜间任务不一定能纠正过来）。
 - 用户说出**新的长期事实**（伤病、偏好、目标、约束）时，先调 `update_memory` 再回答。
-- 用户说"记住 / 以后 / 别让我 / 我更喜欢"这类话时，**必须**调用 `update_memory`；
+- 用户说"记住 / 以后 / 别让我 / 我更喜欢 / 我不喜欢 / 我习惯"这类话时，**必须**调用 `update_memory`；
   即使记忆里已有类似内容（补充或修改），也要重新写一次。
 - **没调用记忆工具就不要说"记住了 / 已经更新"**——那是假话。
 - 你**没有删除用户数据的能力**。你能写的只有：记录一次力量训练、保存一份训练计划。
@@ -147,6 +147,15 @@ TOOL_PLAN = """## 生成未来计划
 2. 再调 `save_plan` 保存（用户界面不显示这一步）
 
 **默认按未来一周（7 天）安排**；用户明确说"只要三天"才给 3 天。
+
+用户要求**修改已有计划**（"把明天改成…""调整一下周三"）时：
+1. 先 `get_profile` 拿当前计划；
+2. 在它的基础上改；
+3. 调 `save_plan` 整份保存——不要只说"我改不了"。
+
+用户在这次对话里提了**新的偏好/约束**（"不喜欢…""别安排…"）时：
+先调 `update_memory` 把它记下来，再 `save_plan`——顺序不能反。
+
 计划必须遵守【训练阶段】+【决策规则】+【安全档位硬约束】。
 """
 
@@ -194,7 +203,15 @@ class PromptProvider:
 
 
 def time_context(now: dt.datetime | None = None) -> str:
-    """一行时间上下文（放进 user 消息，不进 system）。"""
+    """一行时间上下文（放进 user 消息，不进 system）。
+
+    ``AGENT_TIME_OVERRIDE`` 仅供评测使用（固定到某个时刻，测时段行为）。
+    """
+    import os
+
+    if now is None:
+        override = os.environ.get("AGENT_TIME_OVERRIDE", "").strip()
+        now = dt.datetime.fromisoformat(override) if override else None
     current = now or dt.datetime.now()
     weekday = "一二三四五六日"[current.weekday()]
     return (
