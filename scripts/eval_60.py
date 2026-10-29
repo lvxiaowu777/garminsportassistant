@@ -154,13 +154,18 @@ async def run_case(agent, case: dict) -> dict:
     return {
         "id": case["id"], "cat": case["cat"], "turns": turns,
         "tools": tools, "must": sorted(must), "forbid": sorted(forbid),
+        "expect": {
+            "must": sorted(must), "must_any": sorted(must_any),
+            "forbid": sorted(forbid), "facts": facts,
+            "facts_any": facts_any, "memory_has": case.get("memory_has") or [],
+        },
         "tool_ok": tool_ok, "fact_ok": fact_ok, "memory_ok": mem_ok,
         "pass": tool_ok and fact_ok and mem_ok,
         "turns_used": turns_used,
         "first_text_ms": int((first_text or 0) * 1000),
         "latency_ms": int(total * 1000),
         "usage": usage,
-        "text": text[:300],
+        "text": text[:600],
     }
 
 
@@ -209,7 +214,7 @@ async def main() -> None:
 
     out_dir = Path(__file__).resolve().parent / "results"
     out_dir.mkdir(exist_ok=True)
-    stamp = dt.datetime.now().strftime("%Y%m%d-%H%M")
+    stamp = dt.datetime.now().strftime("%Y%m%d-%H%M%S")
     jsonl = out_dir / f"eval60-{stamp}.jsonl"
     with jsonl.open("w", encoding="utf-8") as f:
         for row in rows:
