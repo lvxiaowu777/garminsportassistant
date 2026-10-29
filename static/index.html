@@ -202,6 +202,19 @@ input,textarea{font-family:inherit;font-size:15px}
 .send-btn:hover{background:var(--accent-dim)}
 .send-btn:disabled{opacity:.5;cursor:not-allowed}
 
+.train-timer{
+  display:flex;align-items:center;justify-content:space-between;
+  padding:8px 12px;margin:0 0 6px;border-radius:12px;
+  background:var(--card);border:1px solid var(--line);font-size:13px;
+}
+.train-timer .tt-time{font-variant-numeric:tabular-nums;color:var(--accent);font-weight:600}
+.train-timer button{
+  border:0;background:none;font-size:13px;font-weight:600;cursor:pointer;padding:4px 8px;
+}
+.msg-hint{align-self:center;max-width:88%;text-align:center;font-size:12px;
+  color:var(--muted);background:var(--card);border:1px dashed var(--line);
+  border-radius:10px;padding:6px 10px;margin:6px auto;}
+
 /* ═══════════ 训练记录 ═══════════ */
 .act{display:flex;align-items:center;gap:14px;cursor:pointer;transition:border-color .15s,transform .1s}
 .act:hover{border-color:rgba(139,92,246,.5)}
@@ -363,6 +376,11 @@ input,textarea{font-family:inherit;font-size:15px}
     <section class="tab-pane" data-pane="chat">
       <div id="chatList"></div>
       <div class="quick-row" id="quickRow"></div>
+      <div class="train-timer" id="trainTimer">
+        <span id="ttLabel">🏋️ 力量训练计时</span>
+        <span class="tt-time" id="ttTime" hidden>00:00</span>
+        <button id="ttBtn" style="color:var(--accent)">开始</button>
+      </div>
       <div class="chat-input-bar">
         <button class="mic-btn" id="micBtn" title="按住说话">🎤</button>
         <textarea id="chatInput" rows="1" placeholder="问运动助理…"></textarea>
@@ -902,6 +920,8 @@ function msgHtml(m, idx) {
     const transcript = m.content ? `<div style="margin-top:6px;font-size:13px;opacity:.9">${esc(m.content)}</div>` : '';
     body = `<div class="audio-row" data-audio="${esc(m.audio_url)}">
       <span class="audio-play">▶</span><span class="audio-bars">${bars}</span>${extra}</div>${transcript}`;
+  } else if (m.type === 'hint') {
+    return `<div class="msg-hint">${esc(m.content || '')}</div>`;
   } else if (m.type === 'error') {
     body = `⚠️ ${esc(m.content || '回复中断')}`;
   } else {
@@ -967,11 +987,63 @@ async function loadChatHistory() {
   } catch { /* 历史拉不到不影响新对话 */ }
 }
 
+/* ── 力量训练计时 ── */
+const trainTimer = { startedAt: 0, tick: 0 };
+
+function startTrainTimer() {
+  if (trainTimer.startedAt) return;
+  trainTimer.startedAt = Date.now();
+  $('#ttLabel').textContent = '⏱ 力量训练中';
+  $('#ttTime').hidden = false;
+  $('#ttBtn').textContent = '结束并记录';
+  $('#ttBtn').style.color = '#ef4444';
+  const paint = () => {
+    if (!trainTimer.startedAt) return;
+    const s = Math.floor((Date.now() - trainTimer.startedAt) / 1000);
+    $('#ttTime').textContent = String(Math.floor(s / 60)).padStart(2, '0') + ':' + String(s % 60).padStart(2, '0');
+  };
+  paint();
+  trainTimer.tick = setInterval(paint, 1000);
+}
+
+function stopTrainTimer() {
+  if (!trainTimer.startedAt) return;
+  const seconds = (Date.now() - trainTimer.startedAt) / 1000;
+  trainTimer.startedAt = 0;
+  clearInterval(trainTimer.tick);
+  $('#ttLabel').textContent = '🏋️ 力量训练计时';
+  $('#ttTime').hidden = true;
+  $('#ttBtn').textContent = '开始';
+  $('#ttBtn').style.color = 'var(--accent)';
+
+  const minutes = Math.max(1, Math.ceil(seconds / 60));
+  state.pendingTrainingMinutes = minutes;
+  state.chatMessages.push({
+    role: 'assistant',
+    type: 'hint',
+    content: `已计时 ${minutes} 分钟。刚练了什么？直接打字或按住说话告诉我就行；不想说也可以，我先把时长记下。`,
+  });
+  switchTab('chat');
+  renderChat();
+  toast('记得拉伸一下 🧘');
+  setTimeout(() => $('#chatInput')?.focus(), 200);
+}
+
+$('#ttBtn').addEventListener('click', () => {
+  trainTimer.startedAt ? stopTrainTimer() : startTrainTimer();
+});
+
 async function sendChat() {
   if (state.chatBusy) return;
   const input = $('#chatInput');
-  const msg = input.value.trim();
+  let msg = input.value.trim();
   if (!msg) return;
+
+  // 刚结束一次力量计时：把时长带上，Agent 才知道"42 分钟"
+  if (state.pendingTrainingMinutes) {
+    msg = `本次力量训练 ${state.pendingTrainingMinutes} 分钟。${msg}`;
+    state.pendingTrainingMinutes = 0;
+  }
 
   input.value = '';
   input.style.height = 'auto';
