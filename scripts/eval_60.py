@@ -24,11 +24,7 @@ from garmin_coach.agent import get_agent_pool  # noqa: E402
 from garmin_coach.agent.loop.events import TextEvent  # noqa: E402
 from garmin_coach.agent.memory.store import delete_memory, top_memories, upsert_memory  # noqa: E402
 from garmin_coach.agent.session.store import session_id_for  # noqa: E402
-from garmin_coach.db.database import (  # noqa: E402
-    add_chat,
-    clear_session_chat,
-    save_plan,
-)
+from garmin_coach.db.database import add_chat, save_plan  # noqa: E402
 
 UID = 1001
 
@@ -198,14 +194,16 @@ async def main() -> None:
         if case.get("time"):
             os.environ["AGENT_TIME_OVERRIDE"] = case["time"]
 
-        pool.drop(UID)
-        clear_session_chat(session_id_for(UID), UID)
+        # 每题独立会话：不清用户真实聊天，只写评测自己的会话
+        eval_sid = f"u{UID}-eval-{case['id']}-{dt.datetime.now().strftime('%H%M%S')}"
+        os.environ["SESSION_ID_OVERRIDE"] = eval_sid
         for role, content in case.get("history") or []:
-            add_chat(role, content, UID, session_id=session_id_for(UID))
+            add_chat(role, content, UID, session_id=eval_sid)
 
         row = await run_case(pool.get(UID), case)
         rows.append(row)
         os.environ.pop("AGENT_TIME_OVERRIDE", None)
+        os.environ.pop("SESSION_ID_OVERRIDE", None)
         mark = "✓" if row["pass"] else "✗"
         print(
             f"{mark} [{row['id']}] tool={'/'.join(row['tools']) or '-'} "

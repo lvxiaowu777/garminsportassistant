@@ -21,7 +21,16 @@ RESUME_LIMIT = 200
 
 
 def session_id_for(user_id: int, day: dt.date | None = None) -> str:
-    """会话 id 规则：一天一个 —— ``u1001-2026-10-26``。"""
+    """会话 id 规则：一天一个 —— ``u1001-2026-10-26``。
+
+    ``SESSION_ID_OVERRIDE`` 供评测使用：给每次评测一个独立会话，
+    这样跑评测不会清掉用户真实的当天聊天。
+    """
+    import os
+
+    override = os.environ.get("SESSION_ID_OVERRIDE", "").strip()
+    if override:
+        return override
     return f"u{user_id}-{(day or dt.date.today()).isoformat()}"
 
 
