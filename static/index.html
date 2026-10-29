@@ -199,7 +199,7 @@ input,textarea{font-family:inherit;font-size:15px}
 .msg{display:flex;margin-bottom:12px;gap:8px;align-items:flex-end}
 .msg.user{justify-content:flex-end}
 .bubble{
-  max-width:82%;padding:11px 14px;border-radius:14px;font-size:14.5px;
+  padding:11px 14px;border-radius:14px;font-size:14.5px;
   white-space:pre-wrap;word-break:break-word;
 }
 .msg.assistant .bubble{
@@ -219,7 +219,13 @@ input,textarea{font-family:inherit;font-size:15px}
   background:transparent;border:1px dashed rgba(148,163,184,.5);
   color:var(--muted);font-size:12.5px;
 }
-.tool-steps{font-size:12px;color:var(--muted);margin-bottom:8px;padding-bottom:6px;
+.think-box,.tool-steps,.tool-line,.tool-list{margin-bottom:8px;white-space:normal}
+.think-box{margin-bottom:8px;font-size:12px;color:var(--muted);
+  border-left:2px solid rgba(148,163,184,.25);padding-left:8px}
+.think-box summary{cursor:pointer;color:var(--muted);font-size:11.5px;outline:none}
+.think-body{margin-top:6px;white-space:pre-wrap;max-height:220px;overflow:auto;
+  line-height:1.6;opacity:.85}
+.tool-steps{font-size:12px;color:var(--muted);padding-bottom:6px;
   border-bottom:1px solid rgba(148,163,184,.15)}
 .tool-line{display:flex;gap:10px;align-items:center;justify-content:space-between}
 .tool-now{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -390,7 +396,7 @@ input,textarea{font-family:inherit;font-size:15px}
 }
 .rec-dot{width:8px;height:8px;border-radius:50%;background:#fff;animation:pulse 1s infinite}
 @keyframes pulse{0%,100%{opacity:.25}50%{opacity:1}}
-.msg-col{display:flex;flex-direction:column;max-width:82%}
+.msg-col{display:flex;flex-direction:column;max-width:82%;width:max-content;min-width:0}
 .msg.user .msg-col{align-items:flex-end}
 .msg-time{font-size:10.5px;color:var(--muted);margin-top:4px;padding:0 4px}
 .audio-row{display:flex;align-items:center;gap:8px;min-width:130px}
@@ -1102,9 +1108,13 @@ function msgHtml(m, idx) {
   }
   const bubbleClass = m.type === 'error' ? 'bubble error' : 'bubble';
   const steps = isUser ? '' : stepsHtml(m, idx);
+  const thinkText = (m.thinking || '').slice(0, 4000);
+  const think = (!isUser && thinkText)
+    ? `<details class="think-box"><summary>💭 思考过程 · ${m.thinking.length} 字</summary><div class="think-body">${esc(thinkText)}</div></details>`
+    : '';
   return `<div class="msg ${isUser ? 'user' : 'assistant'}">
     ${isUser ? '' : '<div class="msg-avatar">🤖</div>'}
-    <div class="msg-col"><div class="${bubbleClass}">${steps}${body}</div>${time}</div>
+    <div class="msg-col"><div class="${bubbleClass}">${think}${steps}${body}</div>${time}</div>
   </div>`;
 }
 
@@ -1228,7 +1238,7 @@ async function sendChat() {
   state.chatMessages.push({ role: 'user', content: msg, created_at: new Date().toISOString() });
 
   // 先放一个空的助手气泡，边收边填（打字机）
-  const bubble = { role: 'assistant', content: '', steps: [], created_at: new Date().toISOString() };
+  const bubble = { role: 'assistant', content: '', thinking: '', steps: [], created_at: new Date().toISOString() };
   state.chatMessages.push(bubble);
 
   state.chatBusy = true;
@@ -1300,6 +1310,9 @@ async function streamChat(message, bubble) {
 
       if (evt.type === 'text') {
         bubble.content += evt.text;
+        paint();
+      } else if (evt.type === 'thinking') {
+        bubble.thinking = (bubble.thinking || '') + (evt.text || '');
         paint();
       } else if (evt.type === 'done') {
         // 以最终结果为准（含工具执行后的完整文本）
