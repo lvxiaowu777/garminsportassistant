@@ -1250,7 +1250,10 @@ async function sendChat() {
   try {
     await streamChat(msg, bubble);
   } catch (err) {
-    bubble.content = (bubble.content ? bubble.content + '\n' : '') + `⚠️ ${err.message}`;
+    // 规则拦截是产品行为，不当成报错；其它错误才加 ⚠️
+    const friendly = /改写我的规则|不在我(的)?范围/.test(err.message || '');
+    bubble.content = (bubble.content ? bubble.content + '\n' : '')
+      + (friendly ? err.message : `⚠️ ${err.message}`);
   } finally {
     state.chatBusy = false;
     sendBtn.disabled = false;
@@ -1277,8 +1280,13 @@ async function streamChat(message, bubble) {
     throw new Error('登录已失效，请重新登录');
   }
   if (!res.ok || !res.body) {
-    const text = await res.text().catch(() => '');
-    throw new Error(text || `请求失败 (${res.status})`);
+    const raw = await res.text().catch(() => '');
+    let detail = raw;
+    try {
+      const parsed = JSON.parse(raw);
+      detail = parsed && parsed.detail ? parsed.detail : raw;
+    } catch { /* 不是 JSON 就用原文 */ }
+    throw new Error(detail || `请求失败 (${res.status})`);
   }
 
   const reader = res.body.getReader();
