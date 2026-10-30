@@ -58,6 +58,10 @@ async def ensure_fresh(
     if not settings.sync_preflight_enabled:
         return {"synced": False, "reason": "disabled", "last_sync_at": "", "error": None}
 
+    # 游客演示账号不连佳明：数据由回放器负责
+    if user_id == settings.demo_user_id:
+        return {"synced": False, "reason": "demo", "last_sync_at": "", "error": None}
+
     try:
         last = await asyncio.to_thread(get_last_sync_at, user_id)
     except Exception:  # noqa: BLE001

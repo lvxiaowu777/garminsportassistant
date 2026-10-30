@@ -74,6 +74,7 @@ class Settings:
     docs_enabled: bool = True              # 是否暴露 /docs（API_DOCS_ENABLED）
     default_weather_lon: float = 112.14     # 前端拿不到定位时的默认经度
     default_weather_lat: float = 32.04      # 默认纬度（襄阳）
+    demo_scenario: str = "good"             # 游客点同步时回放哪组数据（DEMO_SCENARIO)
 
     # ── 同步 ──
     sync_days_default: int = 2             # 日常同步拉几天（首次绑表才 backfill）
@@ -103,6 +104,7 @@ def load_settings() -> Settings:
         not in ("0", "false", "False"),
         default_weather_lon=_float("DEFAULT_WEATHER_LON", 112.14),
         default_weather_lat=_float("DEFAULT_WEATHER_LAT", 32.04),
+        demo_scenario=os.environ.get("DEMO_SCENARIO", "good").strip() or "good",
         sync_days_default=_int("SYNC_DAYS_DEFAULT", 2),
         sync_fresh_ttl_minutes=_int("SYNC_FRESH_TTL_MINUTES", 10),
         sync_fresh_timeout_seconds=_int("SYNC_FRESH_TIMEOUT_SECONDS", 25),

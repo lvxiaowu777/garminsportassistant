@@ -2020,8 +2020,10 @@ function getPosition(timeout = 5000) {
 
 async function syncAll() {
   const errors = [];
+  let syncMsg = '';
   try {
-    await api('/api/health/sync', { method: 'POST' });
+    const res = await api('/api/health/sync', { method: 'POST' });
+    syncMsg = (res && res.message) || '数据已更新';
   } catch (err) {
     errors.push('手表同步失败：' + err.message);
   }
@@ -2038,6 +2040,7 @@ async function syncAll() {
     errors.push('天气同步失败：' + err.message);
   }
   if (errors.length) toast(errors[0], 3000);
+  else toast(syncMsg || '数据已更新', 2500);
   return errors.length === 0;
 }
 

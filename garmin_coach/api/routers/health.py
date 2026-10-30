@@ -100,9 +100,30 @@ async def api_weather(user_id: int = Depends(require_user)):
 
 
 @router.post("/sync")
-async def api_sync_health(user_id: int = Depends(require_user)):
-    """手动同步：当天首次拉 7 天，之后只拉当天（规则在 services/health_sync）。"""
+async def api_sync_health(
+    user_id: int = Depends(require_user),
+    scenario: str = "",
+):
+    """手动同步。
+
+    - 真实账号：走佳明同步；
+    - 游客演示账号：不碰佳明，直接回放一组数据（前端显示"数据更新成功"）。
+    """
     import asyncio
+
+    from garmin_coach.settings import settings
+
+    if user_id == settings.demo_user_id:
+        from garmin_coach.services.demo_data import replay
+
+        scene = (scenario or settings.demo_scenario).strip()
+        result = await asyncio.to_thread(replay, user_id, scene)
+        return {
+            "ok": True,
+            "message": f"数据更新成功 · {result['title']}",
+            "demo": True,
+            **result,
+        }
 
     result = await asyncio.to_thread(sync_all_brands, user_id)
     return {"ok": True, **result}
