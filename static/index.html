@@ -1021,7 +1021,15 @@ function renderQuickRow() {
 
 function fmtTime(ts) {
   if (!ts) return '';
-  const m = String(ts).match(/(\d{2}):(\d{2})/);
+  const s = String(ts);
+  // 前端实时消息是 ISO(UTC)，要转成浏览器本地时间；历史消息是服务器本地时间字符串
+  if (s.includes('T')) {
+    const d = new Date(s);
+    if (!Number.isNaN(d.getTime())) {
+      return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+    }
+  }
+  const m = s.match(/(\d{2}):(\d{2})/);
   return m ? `${m[1]}:${m[2]}` : '';
 }
 
