@@ -2027,9 +2027,13 @@ async function syncAll() {
   }
   try {
     const pos = await getPosition();
-    if (pos) {
-      await api(`/api/health/sync-weather?lon=${pos.lon}&lat=${pos.lat}`, { method: 'POST' });
-    }
+    // 拿不到定位也调：后端会用默认坐标兜底
+    await api(
+      pos
+        ? `/api/health/sync-weather?lon=${pos.lon}&lat=${pos.lat}`
+        : '/api/health/sync-weather',
+      { method: 'POST' },
+    );
   } catch (err) {
     errors.push('天气同步失败：' + err.message);
   }

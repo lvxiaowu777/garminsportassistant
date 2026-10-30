@@ -117,8 +117,10 @@ async def api_sync_weather(
     """手动触发天气同步（和风，按经纬度）。lon/lat 为 0 时用默认坐标。"""
     from garmin_coach.integrations.weather import sync_weather_to_db
 
+    from garmin_coach.settings import settings
+
     if not lon or not lat:
-        lon, lat = 112.14, 32.04  # 默认襄阳
+        lon, lat = settings.default_weather_lon, settings.default_weather_lat
     try:
         today = dt.date.today().isoformat()
         weather = sync_weather_to_db(user_id, today, lon=lon, lat=lat)

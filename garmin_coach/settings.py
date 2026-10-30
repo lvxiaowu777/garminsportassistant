@@ -72,6 +72,8 @@ class Settings:
     demo_global_daily: int = 300           # 全站每天最多几条（DEMO_GLOBAL_DAILY）
     max_message_chars: int = 2000          # 单条消息最大长度（MAX_MESSAGE_CHARS）
     docs_enabled: bool = True              # 是否暴露 /docs（API_DOCS_ENABLED）
+    default_weather_lon: float = 112.14     # 前端拿不到定位时的默认经度
+    default_weather_lat: float = 32.04      # 默认纬度（襄阳）
 
     # ── 同步 ──
     sync_days_default: int = 2             # 日常同步拉几天（首次绑表才 backfill）
@@ -99,6 +101,8 @@ def load_settings() -> Settings:
         max_message_chars=_int("MAX_MESSAGE_CHARS", 2000),
         docs_enabled=os.environ.get("API_DOCS_ENABLED", "1").strip()
         not in ("0", "false", "False"),
+        default_weather_lon=_float("DEFAULT_WEATHER_LON", 112.14),
+        default_weather_lat=_float("DEFAULT_WEATHER_LAT", 32.04),
         sync_days_default=_int("SYNC_DAYS_DEFAULT", 2),
         sync_fresh_ttl_minutes=_int("SYNC_FRESH_TTL_MINUTES", 10),
         sync_fresh_timeout_seconds=_int("SYNC_FRESH_TIMEOUT_SECONDS", 25),
