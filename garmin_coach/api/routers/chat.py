@@ -33,6 +33,8 @@ def _client_ip(request: Request) -> str:
 
 
 from garmin_coach.services.asr import asr_transcribe
+from garmin_coach.errors import AppError
+from garmin_coach.services.guard import find_injection, rejection_message
 from garmin_coach.services.quota import check_demo_chat, check_message
 from garmin_coach.settings import settings
 
@@ -78,6 +80,11 @@ async def api_asr(file: UploadFile = File(...), user_id: int = Depends(require_u
     text = await asr_transcribe(audio_bytes, file.filename or "audio.m4a")
     if not text:
         raise HTTPException(500, "语音识别失败，请重试")
+
+    reason = find_injection(text)
+    if reason:
+        log.warning("injection blocked (voice): user=%s reason=%s", user_id, reason)
+        raise AppError(rejection_message(reason), 400)
     return {"text": text}
 
 
@@ -160,6 +167,10 @@ async def api_chat_stream(
     from garmin_coach.agent import get_agent
 
     check_message(req.message)
+    reason = find_injection(req.message)
+    if reason:
+        log.warning("injection blocked: user=%s reason=%s", user_id, reason)
+        raise AppError(rejection_message(reason), 400)
     if user_id == settings.demo_user_id:
         check_demo_chat(_client_ip(request))
 
