@@ -35,6 +35,7 @@ def _client_ip(request: Request) -> str:
 from garmin_coach.services.asr import asr_transcribe
 from garmin_coach.errors import AppError
 from garmin_coach.services.guard import find_injection, rejection_message
+from garmin_coach.services.scope import find_offtopic, offtopic_reply
 from garmin_coach.services.quota import check_demo_chat, check_message
 from garmin_coach.settings import settings
 
@@ -85,6 +86,16 @@ async def api_asr(file: UploadFile = File(...), user_id: int = Depends(require_u
     if reason:
         log.warning("injection blocked (voice): user=%s reason=%s", user_id, reason)
         raise AppError(rejection_message(reason), 400)
+
+    if find_offtopic(text):
+        log.info("offtopic refused (voice): user=%s", user_id)
+        return {
+            "text": text,
+            "audio_url": audio_url,
+            "duration_sec": duration_sec,
+            "reply": offtopic_reply(),
+            "recorded": False,
+        }
     return {"text": text}
 
 
@@ -171,6 +182,27 @@ async def api_chat_stream(
     if reason:
         log.warning("injection blocked: user=%s reason=%s", user_id, reason)
         raise AppError(rejection_message(reason), 400)
+
+    off_topic = find_offtopic(req.message)
+    if off_topic:
+        log.info("offtopic refused: user=%s cat=%s", user_id, off_topic)
+        reply = offtopic_reply()
+
+        async def refuse_gen():
+            yield "data: " + json.dumps(
+                {"type": "text", "text": reply}, ensure_ascii=False
+            ) + "\n\n"
+            yield "data: " + json.dumps(
+                {"type": "done", "reply": reply, "turns": 0, "tools": [], "usage": {}},
+                ensure_ascii=False,
+            ) + "\n\n"
+
+        return StreamingResponse(
+            refuse_gen(),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        )
+
     if user_id == settings.demo_user_id:
         check_demo_chat(_client_ip(request))
 
