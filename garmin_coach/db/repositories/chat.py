@@ -138,13 +138,14 @@ def cleanup_old_chat(days: int = 30):
         session.close()
 
 
-def clear_chat_history(user_id: int = 0):
+def clear_chat_history(user_id: int = 0) -> int:
     session = SessionLocal()
     try:
-        session.execute(
+        result = session.execute(
             ChatHistory.__table__.delete().where(ChatHistory.user_id == user_id)
         )
         session.commit()
+        return result.rowcount or 0
     finally:
         session.close()
 
