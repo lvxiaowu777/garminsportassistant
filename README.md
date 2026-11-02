@@ -137,21 +137,20 @@ garmin-coach/
 │   │   ├── session/              # manager.py（生命周期/落库/恢复）· session.py
 │   │   ├── conversation/         # manager.py（消息本）· serialize.py
 │   │   ├── prompts/              # base.py（唯一一份提示词）
-│   │   ├── tools/                # base · registry · health（9 个工具）
+│   │   ├── tools/                # base · registry · health · memory（11 个工具）
 │   │   ├── llmclient/            # base · openai · anthropic · config · factory
 │   │   ├── memory/               # store · inject · extract · manage · outbox
-│   │   └── bridge.py             # 路由调用入口
 │   ├── api/                      # deps · schemas · routers（7 个）
-│   ├── services/                 # safety · safety_rules · trace · freshness · asr · clock
+│   ├── services/                 # safety · quota · guard · scope · demo_data · trace · freshness · asr
 │   ├── integrations/             # garmin_client · garmin_sync · weather · push
 │   ├── db/                       # database · models
 │   ├── auth.py · settings.py · server.py · __main__.py
 ├── static/                       # Web 仪表盘（单文件，SSE 流式渲染）
-├── scripts/                      # seed_dev_data · smoke_eval · migrate_session_id
+├── scripts/                      # seed / smoke / eval60 / replay / clear_session / create_account
 ├── config/                       # .tokens/{user_id}/ 手表令牌（gitignored）
 ├── docs/                         # CODE-MAP / PROJECT-OVERVIEW / REFACTOR
+├── deploy/                       # systemd unit + nginx 样例（SSE 关缓冲）
 ├── requirements.txt
-├── deploy.py · deploy_config.example.py
 └── .env.example
 ```
 
@@ -161,7 +160,7 @@ garmin-coach/
 
 ## 重构路线
 
-现状：`src/` 已清空（只剩启动器），数据层 / Agent / 工具 / 传输层 / 外部服务都在
+现状：`src/` 已删除，数据层 / Agent / 工具 / 传输层 / 外部服务都在
 `garmin_coach/` 包里；对话走真正的工具调用循环（Agent 事件流 + SSE）。
 
 | 阶段 | 内容 | 状态 |
@@ -171,10 +170,10 @@ garmin-coach/
 | 2 | `Tool` 基类 + `ToolRegistry`，数据查询工具化 | ✅ 完成 |
 | 3 | `Agent.run()` 主循环 + `ConversationManager` | ✅ 完成 |
 | 4 | 路由拆分 + 会话化 + 持久化 + 记忆 + 双协议 + 流式 + trace | ✅ 完成 |
-| 5 | 42 题评测、安全加固（WS 验签 / JWT exp）、前端接流式 | 待做 |
+| 5 | 60 题评测、注入拦截、业务边界、演示配额、JWT exp | ✅ 完成 |
 
 阶段 1-3 已落地：对话从「把全部数据拼进 prompt 的单轮调用」改造成
-「模型自己调工具查数据」的 Agent 循环，9 个工具，接口契约完全兼容。
+「模型自己调工具查数据」的 Agent 循环，11 个工具，接口契约完全兼容。
 详见 [`docs/PROJECT-OVERVIEW.md`](docs/PROJECT-OVERVIEW.md)（整体架构、Agent 循环、
 工具层、记忆管理、提示词设计、部署）。
 
